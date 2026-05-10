@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}TrustLens AI{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet" />
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  {% block body %}{% endblock %}
+
+  <!-- ── AI Chatbot (shown on all authenticated pages) ── -->
+  {% if session.user_id %}
+  <!-- FAB Button -->
+  <button class="chatbot-fab" id="chatFab" onclick="toggleChat()" title="TrustLens AI Assistant">
+    <i class="bi bi-robot" id="chatFabIcon"></i>
+    <span class="chatbot-badge">AI</span>
+  </button>
+
+  <!-- Chat Window -->
+  <div class="chatbot-window" id="chatWindow">
+    <div class="chatbot-header">
+      <div class="chatbot-avatar"><i class="bi bi-robot"></i></div>
+      <div>
+        <div style="font-weight:700;font-size:.9rem;">TrustLens AI Assistant</div>
+        <div class="chatbot-status">Online – Ready to help</div>
+      </div>
+      <button onclick="toggleChat()" style="margin-left:auto;background:none;border:none;color:var(--text-muted);font-size:1.1rem;cursor:pointer;">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <div class="chatbot-messages" id="chatMessages">
+      <div class="chat-msg bot">👋 Hi! I'm your <strong>TrustLens AI Assistant</strong>.<br><br>
+        I can help you identify scams, fake jobs, phishing links, and more.<br><br>
+        Ask me anything about digital fraud! 🛡️</div>
+    </div>
+
+    <!-- Quick question buttons -->
+    <div class="chat-quick-btns" id="quickBtns">
+      <button class="chat-quick-btn" onclick="sendQuick('How to identify fake jobs?')">Fake Jobs</button>
+      <button class="chat-quick-btn" onclick="sendQuick('How to avoid phishing?')">Phishing</button>
+      <button class="chat-quick-btn" onclick="sendQuick('What is an OTP scam?')">OTP Scam</button>
+      <button class="chat-quick-btn" onclick="sendQuick('How to verify RBI/SEBI?')">RBI/SEBI</button>
+    </div>
+
+    <div class="chatbot-input-row">
+      <input type="text" class="chatbot-input form-control" id="chatInput"
+             placeholder="Ask about digital fraud..." maxlength="300"
+             onkeydown="if(event.key==='Enter') sendChat()" />
+      <button class="chatbot-send" onclick="sendChat()">
+        <i class="bi bi-send-fill"></i>
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

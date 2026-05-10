@@ -1,0 +1,51 @@
+<!-- Reusable result panel — included in every scan page -->
+<!-- Caller must set: result-panel id, trust-circle id, trust-num id, result-badge id,
+     result-text id, explanation-text id, keywords-wrap id (optional) -->
+
+<div class="result-panel mt-4" id="resultPanel">
+  <div class="glass-card">
+    <!-- Top row: badge + trust meter -->
+    <div class="row align-items-center g-4 mb-4">
+      <div class="col-md-7">
+        <div class="mb-3">
+          <span class="result-badge" id="resultBadge">—</span>
+        </div>
+        <h5 id="resultText" style="font-weight:700;font-size:1.1rem;margin-bottom:8px;">—</h5>
+        <p id="explanationText" style="color:var(--text-muted);font-size:.9rem;line-height:1.6;margin:0;">—</p>
+      </div>
+      <div class="col-md-5 text-center">
+        <div class="trust-meter">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle class="trust-circle-bg" cx="80" cy="80" r="65"/>
+            <circle class="trust-circle" id="trustCircle" cx="80" cy="80" r="65"
+                    stroke="var(--neon-green)"
+                    stroke-dasharray="408.4"
+                    stroke-dashoffset="408.4"/>
+          </svg>
+          <div class="trust-score-text">
+            <div class="trust-score-num" id="trustNum">0</div>
+            <div class="trust-score-label">Trust Score</div>
+          </div>
+        </div>
+        <!-- Linear bar -->
+        <div class="trust-bar-wrap mt-3" style="max-width:160px;margin:12px auto 0;">
+          <div class="trust-bar" id="trustBar" style="width:0%;background:var(--neon-green);"></div>
+        </div>
+        <div id="riskLabel" style="font-size:.8rem;color:var(--text-muted);margin-top:6px;font-weight:600;"></div>
+      </div>
+    </div>
+
+    <!-- Keywords row -->
+    <div id="keywordsWrap" style="display:none;">
+      <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:600;">
+        <i class="bi bi-exclamation-triangle me-1" style="color:var(--neon-red);"></i>Suspicious Keywords Found
+      </div>
+      <div id="keywordsList"></div>
+    </div>
+
+    <!-- Extra info row (used by some pages) -->
+    <div id="extraInfoWrap" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+      <div id="extraInfoContent"></div>
+    </div>
+  </div>
+</div>

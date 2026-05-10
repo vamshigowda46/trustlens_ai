@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Scam Message Detector – TrustLens AI{% endblock %}
+
+{% block body %}
+{% include "sidebar.html" %}
+
+<div class="scan-layout">
+  <div class="mb-4">
+    <div class="d-flex align-items-center gap-3 mb-2">
+      <div class="feature-icon icon-yellow" style="margin:0;width:44px;height:44px;font-size:1.2rem;">
+        <i class="bi bi-chat-dots-fill"></i>
+      </div>
+      <div>
+        <h4 style="font-weight:700;margin:0;">Scam Message Detector</h4>
+        <p style="color:var(--text-muted);font-size:.85rem;margin:0;">Detect OTP scams, lottery fraud, phishing, and UPI scams in messages</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <div class="glass-card">
+        <h6 style="font-weight:700;margin-bottom:20px;color:var(--text-muted);font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;">
+          <i class="bi bi-chat-square-text me-2" style="color:var(--neon-blue);"></i>Paste Message
+        </h6>
+
+        <form id="msgForm">
+          <div class="mb-3">
+            <label class="form-label">WhatsApp / SMS / Email Text *</label>
+            <textarea class="form-control" id="msgText" rows="8"
+                      placeholder="Paste the suspicious message here..." required></textarea>
+            <div class="d-flex justify-content-between mt-1">
+              <small style="color:var(--text-muted);font-size:.75rem;">Supports WhatsApp, SMS, Email</small>
+              <small id="charCount" style="color:var(--text-muted);font-size:.75rem;">0 chars</small>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-neon btn w-100">
+            <i class="bi bi-cpu me-2"></i>Analyze Message
+          </button>
+        </form>
+
+        <!-- Sample messages -->
+        <div class="mt-3">
+          <small style="color:var(--text-muted);">Try a sample:</small>
+          <div class="d-flex flex-column gap-2 mt-2">
+            <button class="btn btn-sm text-start" style="background:rgba(255,51,102,0.1);color:var(--neon-red);border:1px solid rgba(255,51,102,.2);border-radius:8px;font-size:.78rem;padding:8px 12px;"
+                    onclick="fillMsg('lottery')">⚠ Lottery Scam Sample</button>
+            <button class="btn btn-sm text-start" style="background:rgba(255,51,102,0.1);color:var(--neon-red);border:1px solid rgba(255,51,102,.2);border-radius:8px;font-size:.78rem;padding:8px 12px;"
+                    onclick="fillMsg('otp')">⚠ OTP/Banking Scam Sample</button>
+            <button class="btn btn-sm text-start" style="background:rgba(0,255,136,0.1);color:var(--neon-green);border:1px solid rgba(0,255,136,.2);border-radius:8px;font-size:.78rem;padding:8px 12px;"
+                    onclick="fillMsg('safe')">✓ Safe Message Sample</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scam type legend -->
+      <div class="glass-card mt-3" style="padding:20px !important;">
+        <h6 style="font-weight:700;margin-bottom:12px;font-size:.85rem;color:var(--neon-blue);">
+          <i class="bi bi-info-circle me-2"></i>Scam Types Detected
+        </h6>
+        <div class="row g-2">
+          {% for icon, label in [('bi-bank','Banking/UPI Scam'),('bi-trophy','Lottery Scam'),('bi-link-45deg','Phishing'),('bi-currency-rupee','Loan Scam'),('bi-graph-up','Investment Scam')] %}
+          <div class="col-6">
+            <div style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--text-muted);">
+              <i class="bi {{ icon }}" style="color:var(--neon-red);"></i>{{ label }}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="scan-loader glass-card" id="scanLoader">
+        <div class="spinner-neon"></div>
+        <p style="color:var(--text-muted);">Analyzing message with NLP...</p>
+      </div>
+
+      <div class="glass-card text-center" id="defaultState" style="padding:60px 28px !important;">
+        <i class="bi bi-chat-dots" style="font-size:3.5rem;color:var(--text-muted);display:block;margin-bottom:16px;"></i>
+        <h6 style="color:var(--text-muted);font-weight:600;">Paste a message to analyze</h6>
+        <p style="color:var(--text-muted);font-size:.85rem;">Works with WhatsApp forwards, SMS alerts, and suspicious emails.</p>
+      </div>
+
+      {% include "result_panel.html" %}
+
+      <!-- Scam types found -->
+      <div id="scamTypesCard" style="display:none;" class="glass-card mt-3">
+        <h6 style="font-weight:700;margin-bottom:12px;font-size:.85rem;color:var(--neon-red);">
+          <i class="bi bi-exclamation-octagon me-2"></i>Scam Categories Identified
+        </h6>
+        <div id="scamTypesList"></div>
+      </div>
+      <!-- Red Flags -->
+      <div id="redFlagsCard" style="display:none;" class="glass-card mt-3">
+        <h6 style="font-weight:700;margin-bottom:14px;font-size:.85rem;color:var(--neon-red);">
+          <i class="bi bi-exclamation-octagon me-2"></i>Explainable AI – Red Flags
+        </h6>
+        <div id="redFlagsList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+const msgSamples = {
+  lottery: 'Congratulations! You have been selected as the LUCKY WINNER of ₹25,00,000 in the National Digital Lottery 2024. To claim your prize, send your Aadhaar card, PAN card, and bank account details immediately. Call us on WhatsApp: +91-XXXXXXXXXX. Offer valid for 24 hours only. Act now!',
+  otp: 'Dear Customer, Your SBI account has been temporarily blocked due to suspicious activity. Click here immediately to verify: http://sbi-secure-verify.tk/login. Enter your OTP and net banking password to restore access. Failure to verify within 2 hours will result in permanent account suspension.',
+  safe: 'Hi! Your order #ORD-2024-8821 has been shipped and will be delivered by tomorrow between 10 AM - 2 PM. Track your order at flipkart.com/track. For any queries, contact our support team.'
+};
+
+function fillMsg(type) {
+  document.getElementById('msgText').value = msgSamples[type];
+  document.getElementById('charCount').textContent = msgSamples[type].length + ' chars';
+}
+
+document.getElementById('msgText').addEventListener('input', function() {
+  document.getElementById('charCount').textContent = this.value.length + ' chars';
+});
+
+document.getElementById('msgForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  showLoader('scanLoader', 'defaultState');
+  document.getElementById('scamTypesCard').style.display = 'none';
+  try {
+    const data = await postScan('/api/scan/message', { message: document.getElementById('msgText').value });
+    hideLoader('scanLoader');
+    renderResult(data);
+    // Show scam types
+    if (data.scam_types && data.scam_types.length > 0) {
+      const list = document.getElementById('scamTypesList');
+      list.innerHTML = data.scam_types.map(t =>
+        `<span class="keyword-tag"><i class="bi bi-exclamation-circle me-1"></i>${t}</span>`
+      ).join('');
+      document.getElementById('scamTypesCard').style.display = 'block';
+    }
+    if (data.red_flags && data.red_flags.length > 0) {
+      const list = document.getElementById('redFlagsList');
+      list.innerHTML = data.red_flags.map(f =>
+        `<div class="red-flag-card severity-${f.severity}">
+           <i class="bi ${f.icon} red-flag-icon" style="color:${f.color};"></i>
+           <div><span class="red-flag-label">${f.label}</span>
+           <span class="red-flag-severity sev-${f.severity}">${f.severity}</span></div>
+         </div>`).join('');
+      document.getElementById('redFlagsCard').style.display = 'block';
+    }
+  } catch(err) {
+    hideLoader('scanLoader');
+    showDefaultState('defaultState', 'Scan failed. Please try again.');
+  }
+});
+</script>
+{% endblock %}
+{% endblock %}

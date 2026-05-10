@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Threat Map – TrustLens AI{% endblock %}
+
+{% block body %}
+{% include "sidebar.html" %}
+
+<div class="main-content">
+  <div class="mb-4">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+      <div>
+        <h4 style="font-weight:700;margin:0;">
+          <i class="bi bi-geo-alt-fill me-2" style="color:var(--neon-red);"></i>Cybersecurity Threat Map
+        </h4>
+        <p style="color:var(--text-muted);font-size:.85rem;margin:4px 0 0;">
+          <span class="live-indicator"><span class="live-dot"></span>Live Threat Intelligence</span>
+          &nbsp;·&nbsp; Simulated fraud attack locations across India
+        </p>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <span class="threat-stat-pill"><i class="bi bi-exclamation-triangle"></i> <span id="totalThreats">0</span> Active Threats</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:.78rem;font-weight:600;background:rgba(255,215,0,0.15);color:var(--neon-yellow);border:1px solid rgba(255,215,0,.2);">
+          <i class="bi bi-clock"></i> Updated: <span id="mapTime">--:--</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- Map -->
+    <div class="col-lg-8">
+      <div class="threat-map-container">
+        <div class="map-tooltip" id="mapTooltip"></div>
+        <svg class="threat-map-svg" id="threatMapSvg" viewBox="0 0 800 600">
+          <!-- India outline (simplified path) -->
+          <path d="M 280 80 L 320 60 L 380 55 L 440 70 L 490 90 L 520 130 L 540 170 L 550 210 L 545 250 L 530 290 L 510 330 L 490 370 L 470 400 L 450 430 L 430 460 L 410 490 L 390 510 L 370 530 L 350 520 L 330 500 L 310 480 L 290 460 L 270 440 L 250 410 L 240 380 L 235 350 L 240 320 L 250 290 L 255 260 L 250 230 L 245 200 L 250 170 L 260 140 L 270 110 Z"
+                fill="rgba(0,212,255,0.04)" stroke="rgba(0,212,255,0.2)" stroke-width="1.5"/>
+          <!-- Grid lines -->
+          <defs>
+            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(0,212,255,0.04)" stroke-width="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="800" height="600" fill="url(#grid)"/>
+          <!-- Threat dots rendered by JS -->
+          <g id="threatDots"></g>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Stats Panel -->
+    <div class="col-lg-4">
+      <div class="glass-card mb-3">
+        <h6 style="font-weight:700;margin-bottom:16px;font-size:.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">
+          <i class="bi bi-bar-chart me-2" style="color:var(--neon-red);"></i>Threats by State
+        </h6>
+        <div id="stateList" class="d-flex flex-column gap-2"></div>
+      </div>
+
+      <div class="glass-card mb-3">
+        <h6 style="font-weight:700;margin-bottom:16px;font-size:.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">
+          <i class="bi bi-pie-chart me-2" style="color:var(--neon-blue);"></i>Threat Types
+        </h6>
+        <div class="chart-container" style="height:180px;">
+          <canvas id="threatTypeChart"></canvas>
+        </div>
+      </div>
+
+      <div class="glass-card">
+        <h6 style="font-weight:700;margin-bottom:12px;font-size:.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">
+          <i class="bi bi-activity me-2" style="color:var(--neon-green);"></i>Live Feed
+        </h6>
+        <div id="liveFeed" style="max-height:200px;overflow-y:auto;" class="d-flex flex-column gap-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="glass-card mt-3" style="padding:16px 24px !important;">
+    <div class="d-flex align-items-center gap-4 flex-wrap">
+      <span style="font-size:.8rem;color:var(--text-muted);font-weight:600;">Legend:</span>
+      {% for color, label in [('#ff3366','Phishing'),('#ff8c00','Fake Jobs'),('#ffd700','Loan Scams'),('#a855f7','Investment Fraud'),('#00d4ff','OTP Scams')] %}
+      <div style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--text-muted);">
+        <span style="width:10px;height:10px;border-radius:50%;background:{{ color }};display:inline-block;box-shadow:0 0 6px {{ color }};"></span>
+        {{ label }}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+// ── Mock threat data for India ─────────────────────────────────────────────────
+const THREATS = [
+  { x: 390, y: 200, city: 'Delhi', state: 'Delhi', type: 'Phishing',         color: '#ff3366', count: 847 },
+  { x: 310, y: 280, city: 'Mumbai', state: 'Maharashtra', type: 'Loan Scams', color: '#ffd700', count: 723 },
+  { x: 420, y: 310, city: 'Hyderabad', state: 'Telangana', type: 'Investment Fraud', color: '#a855f7', count: 612 },
+  { x: 380, y: 350, city: 'Bengaluru', state: 'Karnataka', type: 'Fake Jobs', color: '#ff8c00', count: 589 },
+  { x: 450, y: 230, city: 'Kolkata', state: 'West Bengal', type: 'OTP Scams', color: '#00d4ff', count: 534 },
+  { x: 360, y: 180, city: 'Jaipur', state: 'Rajasthan', type: 'Phishing',    color: '#ff3366', count: 421 },
+  { x: 430, y: 270, city: 'Chennai', state: 'Tamil Nadu', type: 'Loan Scams', color: '#ffd700', count: 398 },
+  { x: 340, y: 240, city: 'Ahmedabad', state: 'Gujarat', type: 'Investment Fraud', color: '#a855f7', count: 367 },
+  { x: 400, y: 160, city: 'Lucknow', state: 'Uttar Pradesh', type: 'OTP Scams', color: '#00d4ff', count: 312 },
+  { x: 460, y: 190, city: 'Patna', state: 'Bihar', type: 'Fake Jobs',        color: '#ff8c00', count: 289 },
+  { x: 350, y: 320, city: 'Pune', state: 'Maharashtra', type: 'Phishing',    color: '#ff3366', count: 276 },
+  { x: 480, y: 250, city: 'Bhubaneswar', state: 'Odisha', type: 'Loan Scams', color: '#ffd700', count: 198 },
+  { x: 290, y: 200, city: 'Jodhpur', state: 'Rajasthan', type: 'OTP Scams',  color: '#00d4ff', count: 167 },
+  { x: 410, y: 390, city: 'Coimbatore', state: 'Tamil Nadu', type: 'Fake Jobs', color: '#ff8c00', count: 145 },
+  { x: 370, y: 130, city: 'Chandigarh', state: 'Punjab', type: 'Investment Fraud', color: '#a855f7', count: 134 },
+];
+
+const svg = document.getElementById('threatDots');
+const tooltip = document.getElementById('mapTooltip');
+const mapSvg = document.getElementById('threatMapSvg');
+
+// Render dots
+THREATS.forEach((t, i) => {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+  // Pulsing ring
+  const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  ring.setAttribute('cx', t.x); ring.setAttribute('cy', t.y);
+  ring.setAttribute('r', '8'); ring.setAttribute('stroke', t.color);
+  ring.setAttribute('stroke-width', '2'); ring.setAttribute('fill', 'none');
+  ring.classList.add('threat-dot-ring');
+  ring.style.animationDelay = (i * 0.3) + 's';
+
+  // Main dot
+  const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  dot.setAttribute('cx', t.x); dot.setAttribute('cy', t.y);
+  dot.setAttribute('r', '6'); dot.setAttribute('fill', t.color);
+  dot.setAttribute('opacity', '0.9');
+  dot.classList.add('threat-dot');
+  dot.style.animationDelay = (i * 0.2) + 's';
+  dot.style.filter = `drop-shadow(0 0 6px ${t.color})`;
+
+  // Tooltip on hover
+  dot.addEventListener('mouseenter', (e) => {
+    const rect = mapSvg.getBoundingClientRect();
+    const scaleX = rect.width / 800;
+    const scaleY = rect.height / 600;
+    tooltip.style.left = (t.x * scaleX + rect.left - mapSvg.parentElement.getBoundingClientRect().left + 12) + 'px';
+    tooltip.style.top  = (t.y * scaleY + rect.top  - mapSvg.parentElement.getBoundingClientRect().top  - 40) + 'px';
+    tooltip.innerHTML = `
+      <div style="font-weight:700;color:${t.color};margin-bottom:4px;">${t.city}, ${t.state}</div>
+      <div style="color:var(--text-muted);font-size:.75rem;">Type: ${t.type}</div>
+      <div style="color:var(--text-primary);font-size:.8rem;font-weight:600;">${t.count} incidents</div>`;
+    tooltip.style.display = 'block';
+  });
+  dot.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  g.appendChild(ring); g.appendChild(dot);
+  svg.appendChild(g);
+});
+
+// ── State list ──
+const stateMap = {};
+THREATS.forEach(t => {
+  stateMap[t.state] = (stateMap[t.state] || 0) + t.count;
+});
+const sorted = Object.entries(stateMap).sort((a,b) => b[1]-a[1]).slice(0, 6);
+const maxVal = sorted[0][1];
+document.getElementById('stateList').innerHTML = sorted.map(([state, count]) => `
+  <div>
+    <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:4px;">
+      <span style="color:var(--text-primary);">${state}</span>
+      <span style="color:var(--neon-red);font-weight:700;">${count}</span>
+    </div>
+    <div class="trust-bar-wrap">
+      <div class="trust-bar" style="width:${(count/maxVal*100).toFixed(0)}%;background:var(--neon-red);"></div>
+    </div>
+  </div>`).join('');
+
+// ── Total threats counter ──
+const total = THREATS.reduce((s, t) => s + t.count, 0);
+let c = 0;
+const timer = setInterval(() => {
+  c = Math.min(c + 47, total);
+  document.getElementById('totalThreats').textContent = c.toLocaleString();
+  if (c >= total) clearInterval(timer);
+}, 30);
+
+// ── Time ──
+function updateTime() {
+  document.getElementById('mapTime').textContent = new Date().toLocaleTimeString();
+}
+updateTime(); setInterval(updateTime, 1000);
+
+// ── Threat type chart ──
+const typeCounts = {};
+THREATS.forEach(t => { typeCounts[t.type] = (typeCounts[t.type] || 0) + t.count; });
+new Chart(document.getElementById('threatTypeChart'), {
+  type: 'doughnut',
+  data: {
+    labels: Object.keys(typeCounts),
+    datasets: [{
+      data: Object.values(typeCounts),
+      backgroundColor: ['rgba(255,51,102,.7)','rgba(255,140,0,.7)','rgba(255,215,0,.7)','rgba(168,85,247,.7)','rgba(0,212,255,.7)'],
+      borderWidth: 2,
+      borderColor: ['#ff3366','#ff8c00','#ffd700','#a855f7','#00d4ff']
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { padding: 8, font: { size: 9 }, color: '#8892b0' } } },
+    cutout: '55%'
+  }
+});
+
+// ── Live feed simulation ──
+const feedItems = [
+  { city: 'Mumbai', type: 'Phishing', color: '#ff3366' },
+  { city: 'Delhi', type: 'OTP Scam', color: '#00d4ff' },
+  { city: 'Bengaluru', type: 'Fake Job', color: '#ff8c00' },
+  { city: 'Hyderabad', type: 'Loan Scam', color: '#ffd700' },
+  { city: 'Chennai', type: 'Investment Fraud', color: '#a855f7' },
+  { city: 'Kolkata', type: 'Phishing', color: '#ff3366' },
+  { city: 'Pune', type: 'OTP Scam', color: '#00d4ff' },
+];
+let feedIdx = 0;
+const feed = document.getElementById('liveFeed');
+
+function addFeedItem() {
+  const item = feedItems[feedIdx % feedItems.length];
+  feedIdx++;
+  const div = document.createElement('div');
+  div.style.cssText = `display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:.78rem;animation:fadeInUp .3s ease;`;
+  div.innerHTML = `
+    <span style="width:7px;height:7px;border-radius:50%;background:${item.color};flex-shrink:0;box-shadow:0 0 6px ${item.color};"></span>
+    <span style="color:var(--text-primary);">${item.city}</span>
+    <span style="color:${item.color};margin-left:auto;">${item.type}</span>`;
+  feed.insertBefore(div, feed.firstChild);
+  if (feed.children.length > 8) feed.removeChild(feed.lastChild);
+}
+
+addFeedItem();
+setInterval(addFeedItem, 2500);
+</script>
+{% endblock %}
+{% endblock %}

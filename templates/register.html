@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Register – TrustLens AI{% endblock %}
+{% block body %}
+<div class="auth-container">
+  <div class="auth-card px-3">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }} mb-3">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="glass-card">
+      <div class="text-center mb-4">
+        <div class="auth-logo gradient-text mb-2">
+          <i class="bi bi-shield-fill-check me-2"></i>TrustLens AI
+        </div>
+        <p style="color:var(--text-muted);font-size:.9rem;">Create your free account</p>
+      </div>
+
+      <form method="POST" action="{{ url_for('register') }}" id="regForm">
+        <div class="mb-3">
+          <label class="form-label">Username</label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
+              <i class="bi bi-person"></i>
+            </span>
+            <input type="text" name="username" class="form-control" placeholder="johndoe" required minlength="3"
+                   style="border-left:none !important;" />
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Email Address</label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
+              <i class="bi bi-envelope"></i>
+            </span>
+            <input type="email" name="email" class="form-control" placeholder="you@example.com" required
+                   style="border-left:none !important;" />
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Password</label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
+              <i class="bi bi-lock"></i>
+            </span>
+            <input type="password" name="password" id="pwdField" class="form-control" placeholder="Min 6 characters" required minlength="6"
+                   style="border-left:none !important;border-right:none !important;" />
+            <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-left:none;color:var(--text-muted);cursor:pointer;"
+                  onclick="togglePwd()">
+              <i class="bi bi-eye" id="eyeIcon"></i>
+            </span>
+          </div>
+        </div>
+
+        <!-- Password strength bar -->
+        <div class="mb-4">
+          <div class="trust-bar-wrap">
+            <div class="trust-bar" id="strengthBar" style="width:0%;background:var(--neon-red);"></div>
+          </div>
+          <small id="strengthText" style="color:var(--text-muted);font-size:.78rem;"></small>
+        </div>
+
+        <button type="submit" class="btn-neon btn w-100 mb-3">
+          <i class="bi bi-person-plus me-2"></i>Create Account
+        </button>
+      </form>
+
+      <div class="text-center">
+        <span style="color:var(--text-muted);font-size:.9rem;">Already have an account? </span>
+        <a href="{{ url_for('login') }}" style="color:var(--neon-blue);font-weight:600;text-decoration:none;">Login</a>
+      </div>
+      <div class="text-center mt-3">
+        <a href="{{ url_for('index') }}" style="color:var(--text-muted);font-size:.85rem;text-decoration:none;">
+          <i class="bi bi-arrow-left me-1"></i>Back to Home
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePwd() {
+  const f = document.getElementById('pwdField');
+  const i = document.getElementById('eyeIcon');
+  if (f.type === 'password') { f.type = 'text'; i.className = 'bi bi-eye-slash'; }
+  else { f.type = 'password'; i.className = 'bi bi-eye'; }
+}
+document.getElementById('pwdField').addEventListener('input', function() {
+  const v = this.value, bar = document.getElementById('strengthBar'), txt = document.getElementById('strengthText');
+  let s = 0;
+  if (v.length >= 6) s += 25;
+  if (v.length >= 10) s += 25;
+  if (/[A-Z]/.test(v)) s += 25;
+  if (/[0-9!@#$%]/.test(v)) s += 25;
+  bar.style.width = s + '%';
+  if (s <= 25) { bar.style.background = 'var(--neon-red)'; txt.textContent = 'Weak'; txt.style.color = 'var(--neon-red)'; }
+  else if (s <= 50) { bar.style.background = 'var(--neon-yellow)'; txt.textContent = 'Fair'; txt.style.color = 'var(--neon-yellow)'; }
+  else if (s <= 75) { bar.style.background = '#00aaff'; txt.textContent = 'Good'; txt.style.color = '#00aaff'; }
+  else { bar.style.background = 'var(--neon-green)'; txt.textContent = 'Strong'; txt.style.color = 'var(--neon-green)'; }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Login – TrustLens AI{% endblock %}
+{% block body %}
+<div class="auth-container">
+  <div class="auth-card px-3">
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }} mb-3">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="glass-card">
+      <!-- Logo -->
+      <div class="text-center mb-4">
+        <div class="auth-logo gradient-text mb-2">
+          <i class="bi bi-shield-fill-check me-2"></i>TrustLens AI
+        </div>
+        <p style="color:var(--text-muted);font-size:.9rem;">Sign in to your account</p>
+      </div>
+
+      <form method="POST" action="{{ url_for('login') }}" id="loginForm">
+        <div class="mb-3">
+          <label class="form-label">Email Address</label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
+              <i class="bi bi-envelope"></i>
+            </span>
+            <input type="email" name="email" class="form-control" placeholder="you@example.com" required
+                   style="border-left:none !important;" />
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label">Password</label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
+              <i class="bi bi-lock"></i>
+            </span>
+            <input type="password" name="password" id="pwdField" class="form-control" placeholder="••••••••" required
+                   style="border-left:none !important;border-right:none !important;" />
+            <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-left:none;color:var(--text-muted);cursor:pointer;"
+                  onclick="togglePwd()">
+              <i class="bi bi-eye" id="eyeIcon"></i>
+            </span>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-neon btn w-100 mb-3">
+          <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
+        </button>
+      </form>
+
+      <div class="text-center">
+        <span style="color:var(--text-muted);font-size:.9rem;">Don't have an account? </span>
+        <a href="{{ url_for('register') }}" style="color:var(--neon-blue);font-weight:600;text-decoration:none;">Register</a>
+      </div>
+
+      <div class="text-center mt-3">
+        <a href="{{ url_for('index') }}" style="color:var(--text-muted);font-size:.85rem;text-decoration:none;">
+          <i class="bi bi-arrow-left me-1"></i>Back to Home
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePwd() {
+  const f = document.getElementById('pwdField');
+  const i = document.getElementById('eyeIcon');
+  if (f.type === 'password') { f.type = 'text'; i.className = 'bi bi-eye-slash'; }
+  else { f.type = 'password'; i.className = 'bi bi-eye'; }
+}
+</script>
+{% endblock %}

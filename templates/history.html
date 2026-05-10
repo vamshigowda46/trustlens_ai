@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Scan History – TrustLens AI{% endblock %}
+
+{% block body %}
+{% include "sidebar.html" %}
+
+<div class="main-content">
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h4 style="font-weight:700;margin:0;">Scan History</h4>
+      <p style="color:var(--text-muted);font-size:.9rem;margin:4px 0 0;">All your previous scans — {{ scans|length }} total</p>
+    </div>
+    <div class="d-flex gap-2">
+      <!-- Filter dropdown -->
+      <select id="filterType" class="form-select" style="width:auto;font-size:.85rem;padding:8px 12px !important;">
+        <option value="">All Types</option>
+        <option value="Fake Job">Fake Job</option>
+        <option value="Scam Message">Scam Message</option>
+        <option value="RBI/SEBI Check">RBI/SEBI Check</option>
+        <option value="Loan App">Loan App</option>
+        <option value="Website Scan">Website Scan</option>
+      </select>
+      <select id="filterResult" class="form-select" style="width:auto;font-size:.85rem;padding:8px 12px !important;">
+        <option value="">All Results</option>
+        <option value="safe">Safe</option>
+        <option value="threat">Threats</option>
+      </select>
+    </div>
+  </div>
+
+  {% if scans %}
+  <!-- Summary mini-stats -->
+  <div class="row g-3 mb-4">
+    {% set safe_c = scans | selectattr('result', 'in', ['SAFE','VERIFIED']) | list | length %}
+    {% set threat_c = scans | length - safe_c %}
+    {% for val, label, color, icon in [
+      (scans|length, 'Total Scans', 'var(--neon-blue)', 'bi-activity'),
+      (safe_c, 'Safe', 'var(--neon-green)', 'bi-shield-check'),
+      (threat_c, 'Threats', 'var(--neon-red)', 'bi-shield-x')
+    ] %}
+    <div class="col-4">
+      <div class="glass-card" style="padding:16px !important;text-align:center;">
+        <i class="bi {{ icon }}" style="color:{{ color }};font-size:1.3rem;display:block;margin-bottom:6px;"></i>
+        <div style="font-size:1.5rem;font-weight:800;color:{{ color }};">{{ val }}</div>
+        <div style="font-size:.78rem;color:var(--text-muted);">{{ label }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Table -->
+  <div class="glass-card" style="padding:0 !important;overflow:hidden;">
+    <!-- Search bar -->
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);">
+      <div class="input-group" style="max-width:400px;">
+        <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
+          <i class="bi bi-search"></i>
+        </span>
+        <input type="text" id="searchInput" class="form-control" placeholder="Search scans..."
+               style="border-left:none !important;" oninput="filterTable()" />
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table class="history-table" id="historyTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Type</th>
+            <th>Input</th>
+            <th>Result</th>
+            <th>Trust Score</th>
+            <th>Explanation</th>
+            <th>Date & Time</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          {% for s in scans %}
+          <tr data-type="{{ s.scan_type }}" data-result="{{ 'safe' if s.result in ['SAFE','VERIFIED'] else 'threat' }}">
+            <td style="color:var(--text-muted);font-size:.8rem;">{{ loop.index }}</td>
+            <td>
+              <span style="font-size:.78rem;background:rgba(0,212,255,0.1);color:var(--neon-blue);padding:3px 10px;border-radius:20px;white-space:nowrap;">
+                {{ s.scan_type }}
+              </span>
+            </td>
+            <td style="max-width:200px;">
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem;" title="{{ s.input_text }}">
+                {{ s.input_text[:60] }}{% if s.input_text|length > 60 %}…{% endif %}
+              </div>
+            </td>
+            <td>
+              {% if s.result in ['SAFE', 'VERIFIED'] %}
+                <span style="color:var(--neon-green);font-weight:700;font-size:.82rem;">
+                  <i class="bi bi-check-circle me-1"></i>{{ s.result }}
+                </span>
+              {% elif s.result == 'SUSPICIOUS' %}
+                <span style="color:var(--neon-yellow);font-weight:700;font-size:.82rem;">
+                  <i class="bi bi-exclamation-triangle me-1"></i>{{ s.result }}
+                </span>
+              {% else %}
+                <span style="color:var(--neon-red);font-weight:700;font-size:.82rem;">
+                  <i class="bi bi-x-circle me-1"></i>{{ s.result }}
+                </span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;min-width:100px;">
+                <div class="trust-bar-wrap" style="width:60px;flex-shrink:0;">
+                  <div class="trust-bar"
+                       style="width:{{ s.trust_score }}%;
+                              background:{% if s.trust_score >= 90 %}var(--neon-green){% elif s.trust_score >= 60 %}var(--neon-yellow){% else %}var(--neon-red){% endif %};">
+                  </div>
+                </div>
+                <span style="font-size:.85rem;font-weight:700;
+                             color:{% if s.trust_score >= 90 %}var(--neon-green){% elif s.trust_score >= 60 %}var(--neon-yellow){% else %}var(--neon-red){% endif %};">
+                  {{ s.trust_score }}
+                </span>
+              </div>
+            </td>
+            <td style="max-width:220px;">
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem;color:var(--text-muted);" title="{{ s.explanation }}">
+                {{ s.explanation[:70] if s.explanation else '—' }}{% if s.explanation and s.explanation|length > 70 %}…{% endif %}
+              </div>
+            </td>
+            <td style="font-size:.78rem;white-space:nowrap;color:var(--text-muted);">
+              {{ s.timestamp.strftime('%d %b %Y, %H:%M') if s.timestamp else '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- No results message -->
+    <div id="noResults" style="display:none;text-align:center;padding:40px;color:var(--text-muted);">
+      <i class="bi bi-search" style="font-size:2rem;display:block;margin-bottom:8px;"></i>
+      No scans match your filter.
+    </div>
+  </div>
+
+  {% else %}
+  <div class="glass-card text-center" style="padding:80px 28px !important;">
+    <i class="bi bi-inbox" style="font-size:4rem;color:var(--text-muted);display:block;margin-bottom:16px;"></i>
+    <h5 style="color:var(--text-muted);font-weight:600;margin-bottom:8px;">No scan history yet</h5>
+    <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:24px;">Start scanning to build your history.</p>
+    <div class="d-flex gap-3 justify-content-center flex-wrap">
+      <a href="{{ url_for('fake_job') }}" class="btn-neon btn" style="padding:10px 20px;font-size:.9rem;">
+        <i class="bi bi-briefcase me-2"></i>Fake Job Scan
+      </a>
+      <a href="{{ url_for('scam_message') }}" class="btn-outline-neon btn" style="padding:10px 20px;font-size:.9rem;">
+        <i class="bi bi-chat-dots me-2"></i>Scam Message
+      </a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% block extra_js %}
+<script>
+function filterTable() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const typeFilter = document.getElementById('filterType').value;
+  const resultFilter = document.getElementById('filterResult').value;
+  const rows = document.querySelectorAll('#tableBody tr');
+  let visible = 0;
+
+  rows.forEach(row => {
+    const text = row.textContent.toLowerCase();
+    const type = row.dataset.type || '';
+    const result = row.dataset.result || '';
+    const matchSearch = !search || text.includes(search);
+    const matchType = !typeFilter || type === typeFilter;
+    const matchResult = !resultFilter || result === resultFilter;
+    const show = matchSearch && matchType && matchResult;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  document.getElementById('noResults').style.display = visible === 0 ? 'block' : 'none';
+}
+
+document.getElementById('filterType').addEventListener('change', filterTable);
+document.getElementById('filterResult').addEventListener('change', filterTable);
+</script>
+{% endblock %}
+{% endblock %}

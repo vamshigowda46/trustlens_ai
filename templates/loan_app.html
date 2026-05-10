@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Loan App Detector – TrustLens AI{% endblock %}
+
+{% block body %}
+{% include "sidebar.html" %}
+
+<div class="scan-layout">
+  <div class="mb-4">
+    <div class="d-flex align-items-center gap-3 mb-2">
+      <div class="feature-icon icon-orange" style="margin:0;width:44px;height:44px;font-size:1.2rem;">
+        <i class="bi bi-currency-rupee"></i>
+      </div>
+      <div>
+        <h4 style="font-weight:700;margin:0;">Loan App Detector</h4>
+        <p style="color:var(--text-muted);font-size:.85rem;margin:0;">Identify predatory and fraudulent instant loan applications</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <div class="glass-card">
+        <h6 style="font-weight:700;margin-bottom:20px;color:var(--text-muted);font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;">
+          <i class="bi bi-phone me-2" style="color:var(--neon-blue);"></i>App Details
+        </h6>
+
+        <form id="loanForm">
+          <div class="mb-3">
+            <label class="form-label">App Name *</label>
+            <input type="text" class="form-control" id="loanApp" placeholder="e.g. QuickCash, InstantLoan Pro" required />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Annual Interest Rate (%)</label>
+            <input type="number" class="form-control" id="loanRate" placeholder="e.g. 36 (enter 0 if unknown)" min="0" max="1000" value="0" />
+            <small style="color:var(--text-muted);font-size:.75rem;margin-top:4px;display:block;">
+              RBI cap for NBFCs: ~36% per annum. Higher = suspicious.
+            </small>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">App Permissions Requested</label>
+            <div class="row g-2 mt-1">
+              {% for perm in ['Contacts','SMS','Camera','Location','Storage','Call Logs','Microphone','Device Admin'] %}
+              <div class="col-6">
+                <div class="form-check" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;">
+                  <input class="form-check-input" type="checkbox" value="{{ perm.lower() }}" id="perm{{ loop.index }}"
+                         style="border-color:var(--border);" />
+                  <label class="form-check-label" for="perm{{ loop.index }}"
+                         style="font-size:.85rem;color:var(--text-muted);cursor:pointer;">
+                    {{ perm }}
+                  </label>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <button type="submit" class="btn-neon btn w-100">
+            <i class="bi bi-cpu me-2"></i>Analyze Loan App
+          </button>
+        </form>
+
+        <div class="mt-3">
+          <small style="color:var(--text-muted);">Try a sample:</small>
+          <div class="d-flex gap-2 mt-2">
+            <button class="btn btn-sm" style="background:rgba(255,51,102,0.1);color:var(--neon-red);border:1px solid rgba(255,51,102,.2);border-radius:8px;font-size:.78rem;"
+                    onclick="fillLoanSample('scam')">⚠ Scam App Sample</button>
+            <button class="btn btn-sm" style="background:rgba(0,255,136,0.1);color:var(--neon-green);border:1px solid rgba(0,255,136,.2);border-radius:8px;font-size:.78rem;"
+                    onclick="fillLoanSample('legit')">✓ Legit App Sample</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass-card mt-3" style="padding:20px !important;">
+        <h6 style="font-weight:700;margin-bottom:12px;font-size:.85rem;color:var(--neon-red);">
+          <i class="bi bi-exclamation-triangle me-2"></i>Danger Signs
+        </h6>
+        <ul style="color:var(--text-muted);font-size:.82rem;padding-left:16px;margin:0;line-height:2;">
+          <li>Requests contacts, SMS, or call log access</li>
+          <li>Interest rate above 36% per annum</li>
+          <li>Promises instant approval with no documents</li>
+          <li>Not listed on RBI/Google Play verified list</li>
+          <li>Asks for advance/processing fee before loan</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="scan-loader glass-card" id="scanLoader">
+        <div class="spinner-neon"></div>
+        <p style="color:var(--text-muted);">Analyzing loan app...</p>
+      </div>
+
+      <div class="glass-card text-center" id="defaultState" style="padding:60px 28px !important;">
+        <i class="bi bi-phone" style="font-size:3.5rem;color:var(--text-muted);display:block;margin-bottom:16px;"></i>
+        <h6 style="color:var(--text-muted);font-weight:600;">Enter app details to analyze</h6>
+        <p style="color:var(--text-muted);font-size:.85rem;">We'll check permissions, interest rates, and known scam patterns.</p>
+      </div>
+
+      {% include "result_panel.html" %}
+    </div>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+function fillLoanSample(type) {
+  if (type === 'scam') {
+    document.getElementById('loanApp').value = 'QuickRupee – Instant Loan';
+    document.getElementById('loanRate').value = '120';
+    ['contacts','sms','call logs','location','storage'].forEach(p => {
+      document.querySelectorAll('input[type=checkbox]').forEach(cb => {
+        if (cb.value === p) cb.checked = true;
+      });
+    });
+  } else {
+    document.getElementById('loanApp').value = 'Bajaj Finserv EMI';
+    document.getElementById('loanRate').value = '18';
+    document.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
+    document.querySelector('input[value="storage"]').checked = true;
+  }
+}
+
+document.getElementById('loanForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const checkedPerms = [...document.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value).join(', ');
+  const payload = {
+    app_name: document.getElementById('loanApp').value,
+    permissions: checkedPerms,
+    interest_rate: document.getElementById('loanRate').value
+  };
+  showLoader('scanLoader', 'defaultState');
+  try {
+    const data = await postScan('/api/scan/loan', payload);
+    hideLoader('scanLoader');
+    renderResult(data);
+  } catch(err) {
+    hideLoader('scanLoader');
+    showDefaultState('defaultState', 'Scan failed. Please try again.');
+  }
+});
+</script>
+{% endblock %}
+{% endblock %}

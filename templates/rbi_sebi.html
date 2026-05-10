@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}RBI/SEBI Verification – TrustLens AI{% endblock %}
+
+{% block body %}
+{% include "sidebar.html" %}
+
+<div class="scan-layout">
+  <div class="mb-4">
+    <div class="d-flex align-items-center gap-3 mb-2">
+      <div class="feature-icon icon-blue" style="margin:0;width:44px;height:44px;font-size:1.2rem;">
+        <i class="bi bi-bank2"></i>
+      </div>
+      <div>
+        <h4 style="font-weight:700;margin:0;">RBI / SEBI Verification</h4>
+        <p style="color:var(--text-muted);font-size:.85rem;margin:0;">
+          Intelligent verification — 60+ platforms, fuzzy matching, clone detection
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <!-- ── Left: Input ── -->
+    <div class="col-lg-5">
+      <div class="glass-card">
+        <h6 style="font-weight:700;margin-bottom:20px;color:var(--text-muted);font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;">
+          <i class="bi bi-search me-2" style="color:var(--neon-blue);"></i>Search Platform / App
+        </h6>
+
+        <form id="verifyForm">
+          <div class="mb-3">
+            <label class="form-label">App Name / Company / Website</label>
+            <div class="input-group">
+              <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
+                <i class="bi bi-shield-check"></i>
+              </span>
+              <input type="text" class="form-control" id="verifyQuery"
+                     placeholder="e.g. Zerodha, Navi, KreditBee, CRED..."
+                     style="border-left:none !important;" required />
+            </div>
+            <small style="color:var(--text-muted);font-size:.75rem;margin-top:4px;display:block;">
+              Supports partial names, typos, and aliases
+            </small>
+          </div>
+          <button type="submit" class="btn-neon btn w-100">
+            <i class="bi bi-shield-check me-2"></i>Verify Now
+          </button>
+        </form>
+
+        <!-- Category filter chips -->
+        <div class="mt-4">
+          <small style="color:var(--text-muted);font-size:.78rem;display:block;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Quick Search</small>
+          <div class="d-flex flex-wrap gap-2">
+            {% for name in ['Zerodha','Groww','PhonePe','Navi','CRED','KreditBee','Upstox','Paytm','Angel One','MoneyView','LazyPay','Bajaj Finance','SBI','HDFC Bank','Slice'] %}
+            <button onclick="quickSearch('{{ name }}')"
+                    style="background:rgba(0,212,255,0.07);color:var(--neon-blue);border:1px solid rgba(0,212,255,.15);
+                           padding:4px 12px;border-radius:20px;font-size:.75rem;cursor:pointer;transition:all .2s;"
+                    onmouseover="this.style.background='rgba(0,212,255,0.18)'"
+                    onmouseout="this.style.background='rgba(0,212,255,0.07)'">
+              {{ name }}
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="glass-card mt-3" style="padding:20px !important;">
+        <h6 style="font-weight:700;margin-bottom:14px;font-size:.85rem;color:var(--neon-blue);">
+          <i class="bi bi-cpu me-2"></i>How Verification Works
+        </h6>
+        <div class="d-flex flex-column gap-2">
+          {% for icon, color, label in [
+            ('bi-check2-circle','var(--neon-green)','Exact & alias name matching'),
+            ('bi-search','var(--neon-blue)','Partial & substring matching'),
+            ('bi-shuffle','#a855f7','Fuzzy match with typo tolerance'),
+            ('bi-exclamation-triangle','var(--neon-red)','Clone / impersonation detection'),
+            ('bi-bar-chart','var(--neon-yellow)','Confidence score (0–100%)')
+          ] %}
+          <div style="display:flex;align-items:center;gap:10px;font-size:.82rem;color:var(--text-muted);">
+            <i class="bi {{ icon }}" style="color:{{ color }};font-size:.95rem;flex-shrink:0;"></i>
+            {{ label }}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Regulator info -->
+      <div class="glass-card mt-3" style="padding:20px !important;">
+        <h6 style="font-weight:700;margin-bottom:14px;font-size:.85rem;color:var(--text-muted);">
+          <i class="bi bi-info-circle me-2" style="color:var(--neon-blue);"></i>Regulators Covered
+        </h6>
+        <div class="d-flex flex-column gap-2">
+          {% for reg, color, desc in [
+            ('RBI','var(--neon-blue)','Banks, NBFCs, Payment Apps, Digital Lenders'),
+            ('SEBI','#a855f7','Stock Brokers, Mutual Funds, Investment Platforms'),
+            ('IRDAI','var(--neon-green)','Insurance Companies & Aggregators')
+          ] %}
+          <div style="display:flex;align-items:flex-start;gap:10px;">
+            <span style="background:rgba(0,212,255,0.1);color:{{ color }};padding:2px 10px;border-radius:20px;font-size:.75rem;font-weight:700;flex-shrink:0;">{{ reg }}</span>
+            <span style="font-size:.8rem;color:var(--text-muted);">{{ desc }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Right: Results ── -->
+    <div class="col-lg-7">
+      <!-- Loader -->
+      <div class="scan-loader glass-card" id="scanLoader">
+        <div class="spinner-neon"></div>
+        <p style="color:var(--text-muted);">Searching verification database...</p>
+        <small style="color:var(--text-muted);font-size:.78rem;">Running fuzzy match + alias lookup</small>
+      </div>
+
+      <!-- Default state -->
+      <div class="glass-card text-center" id="defaultState" style="padding:60px 28px !important;">
+        <i class="bi bi-bank" style="font-size:3.5rem;color:var(--text-muted);display:block;margin-bottom:16px;"></i>
+        <h6 style="color:var(--text-muted);font-weight:600;">Search any financial app or platform</h6>
+        <p style="color:var(--text-muted);font-size:.85rem;">
+          60+ platforms covered. Supports typos, partial names, and aliases.
+        </p>
+      </div>
+
+      <!-- Result card (custom — not using result_panel.html) -->
+      <div id="verifyResult" style="display:none;">
+
+        <!-- Main result banner -->
+        <div class="glass-card" id="resultBanner">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+            <div>
+              <div id="resultBadgeWrap" class="mb-2"></div>
+              <h5 id="matchedName" style="font-weight:800;font-size:1.3rem;margin:0;"></h5>
+              <p id="resultExplanation" style="color:var(--text-muted);font-size:.85rem;margin:6px 0 0;line-height:1.6;"></p>
+            </div>
+            <!-- Confidence ring -->
+            <div style="text-align:center;flex-shrink:0;">
+              <div style="position:relative;width:100px;height:100px;margin:0 auto;">
+                <svg width="100" height="100" viewBox="0 0 100 100" style="transform:rotate(-90deg);">
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+                  <circle cx="50" cy="50" r="40" fill="none" stroke-width="8" stroke-linecap="round"
+                          stroke-dasharray="251.2" id="confCircle"
+                          style="transition:stroke-dashoffset 1.2s ease;stroke-dashoffset:251.2;"/>
+                </svg>
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;">
+                  <div id="confNum" style="font-size:1.4rem;font-weight:800;">0%</div>
+                  <div style="font-size:.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Confidence</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Detail grid -->
+          <div class="row g-3" id="detailGrid"></div>
+        </div>
+
+        <!-- Clone warning (shown only for clones) -->
+        <div id="cloneWarning" style="display:none;" class="glass-card mt-3"
+             style="border:1px solid rgba(255,51,102,.3) !important;background:rgba(255,51,102,0.06) !important;">
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-exclamation-octagon-fill" style="color:var(--neon-red);font-size:1.5rem;flex-shrink:0;margin-top:2px;"></i>
+            <div>
+              <div style="font-weight:700;color:var(--neon-red);margin-bottom:6px;font-size:.95rem;">
+                ⚠️ Possible Fake Clone Detected
+              </div>
+              <p id="cloneText" style="color:var(--text-muted);font-size:.85rem;margin:0;line-height:1.6;"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Not found advisory -->
+        <div id="notFoundCard" style="display:none;" class="glass-card mt-3">
+          <h6 style="font-weight:700;margin-bottom:12px;font-size:.85rem;color:var(--neon-yellow);">
+            <i class="bi bi-lightbulb me-2"></i>What to do when not verified?
+          </h6>
+          <ul style="color:var(--text-muted);font-size:.82rem;padding-left:16px;margin:0;line-height:2.1;">
+            <li>Check RBI list: <strong style="color:var(--neon-blue);">rbi.org.in</strong></li>
+            <li>Check SEBI list: <strong style="color:#a855f7;">sebi.gov.in</strong></li>
+            <li>Search on Google Play / App Store for official app</li>
+            <li>Never invest or share bank details with unverified apps</li>
+            <li>Report suspicious apps using our <strong style="color:var(--neon-green);">Report Fraud</strong> feature</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+function quickSearch(name) {
+  document.getElementById('verifyQuery').value = name;
+  document.getElementById('verifyForm').dispatchEvent(new Event('submit'));
+}
+
+const REGULATOR_COLORS = { RBI: '#00d4ff', SEBI: '#a855f7', IRDAI: '#00ff88', Both: '#00ff88' };
+const RESULT_CONFIG = {
+  'VERIFIED':          { cls: 'badge-safe',    icon: 'bi-patch-check-fill', label: '✅ VERIFIED' },
+  'LIKELY VERIFIED':   { cls: 'badge-warning', icon: 'bi-patch-check',      label: '⚠️ LIKELY VERIFIED' },
+  'POSSIBLY VERIFIED': { cls: 'badge-warning', icon: 'bi-question-circle',  label: '⚠️ POSSIBLY VERIFIED' },
+  'SUSPICIOUS CLONE':  { cls: 'badge-danger',  icon: 'bi-shield-x',         label: '🚨 SUSPICIOUS CLONE' },
+  'NOT VERIFIED':      { cls: 'badge-danger',  icon: 'bi-x-circle-fill',    label: '❌ NOT VERIFIED' },
+};
+
+document.getElementById('verifyForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const query = document.getElementById('verifyQuery').value.trim();
+  if (!query) return;
+
+  // Show loader
+  document.getElementById('scanLoader').style.display = 'block';
+  document.getElementById('defaultState').style.display = 'none';
+  document.getElementById('verifyResult').style.display = 'none';
+
+  try {
+    const data = await postScan('/api/scan/verify', { query });
+    document.getElementById('scanLoader').style.display = 'none';
+    renderVerifyResult(data);
+  } catch(err) {
+    document.getElementById('scanLoader').style.display = 'none';
+    document.getElementById('defaultState').style.display = 'block';
+    document.getElementById('defaultState').querySelector('p').textContent = 'Verification failed. Please try again.';
+  }
+});
+
+function renderVerifyResult(d) {
+  const cfg = RESULT_CONFIG[d.result] || RESULT_CONFIG['NOT VERIFIED'];
+  const regColor = REGULATOR_COLORS[d.regulator] || 'var(--neon-blue)';
+
+  // Badge
+  document.getElementById('resultBadgeWrap').innerHTML =
+    `<span class="result-badge ${cfg.cls}"><i class="bi ${cfg.icon} me-1"></i>${cfg.label}</span>`;
+
+  // Name + explanation
+  document.getElementById('matchedName').textContent = d.matched_name || query;
+  document.getElementById('resultExplanation').textContent = d.explanation;
+
+  // Confidence ring
+  const conf = d.confidence || 0;
+  const confColor = conf >= 85 ? '#00ff88' : conf >= 65 ? '#ffd700' : '#ff3366';
+  const circle = document.getElementById('confCircle');
+  circle.style.stroke = confColor;
+  const offset = 251.2 - (conf / 100) * 251.2;
+  setTimeout(() => { circle.style.strokeDashoffset = offset; }, 100);
+
+  // Counter
+  let c = 0;
+  const confEl = document.getElementById('confNum');
+  confEl.style.color = confColor;
+  const t = setInterval(() => {
+    c = Math.min(c + 3, conf);
+    confEl.textContent = c + '%';
+    if (c >= conf) clearInterval(t);
+  }, 20);
+
+  // Detail grid
+  const grid = document.getElementById('detailGrid');
+  if (d.found && !d.is_clone) {
+    const items = [
+      ['Regulator',        d.regulator || '—',   regColor],
+      ['Category',         d.category || '—',    'var(--text-primary)'],
+      ['Registration Type',d.reg_type || '—',    'var(--text-primary)'],
+      ['Official Website', d.website || '—',      'var(--neon-blue)'],
+      ['Match Type',       (d.match_type || '').toUpperCase(), 'var(--neon-yellow)'],
+      ['Confidence',       (d.confidence || 0) + '%', confColor],
+    ];
+    grid.innerHTML = items.map(([label, val, color]) => `
+      <div class="col-6">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">${label}</div>
+          <div style="font-weight:600;font-size:.88rem;color:${color};">${val}</div>
+        </div>
+      </div>`).join('');
+  } else {
+    grid.innerHTML = '';
+  }
+
+  // Clone warning
+  const cloneWarn = document.getElementById('cloneWarning');
+  if (d.is_clone) {
+    document.getElementById('cloneText').textContent = d.explanation;
+    cloneWarn.style.display = 'block';
+  } else {
+    cloneWarn.style.display = 'none';
+  }
+
+  // Not found advisory
+  document.getElementById('notFoundCard').style.display = (!d.found) ? 'block' : 'none';
+
+  // Show result
+  document.getElementById('verifyResult').style.display = 'block';
+  document.getElementById('verifyResult').style.animation = 'fadeInUp .4s ease';
+}
+</script>
+{% endblock %}
+{% endblock %}
