@@ -3,6 +3,8 @@ TrustLens AI – app.py
 Flask application: auth, scan APIs, chatbot, fraud reports, analytics
 """
 import os
+from dotenv import load_dotenv
+from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from flask_mysqldb import MySQL
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -10,14 +12,25 @@ from functools import wraps
 import ai_engine
 import verifier
 
+load_dotenv()
+
 app = Flask(__name__)
-app.secret_key = "trustlens_secret_2024"
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-fallback-key')
 
 # ── MySQL Config ───────────────────────────────────────────────────────────────
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = '2007'       # ← Change to your MySQL password
-app.config['MYSQL_DB'] = 'trustlens_ai'
+_mysql_url = os.environ.get('MYSQL_URL')
+if _mysql_url:
+    _p = urlparse(_mysql_url)
+    app.config['MYSQL_HOST'] = _p.hostname
+    app.config['MYSQL_USER'] = _p.username
+    app.config['MYSQL_PASSWORD'] = _p.password
+    app.config['MYSQL_DB'] = _p.path.lstrip('/')
+    app.config['MYSQL_PORT'] = _p.port or 3306
+else:
+    app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
+    app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'root')
+    app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', '2007')
+    app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'trustlens_ai')
 app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
 
 mysql = MySQL(app)
@@ -307,4 +320,4 @@ def api_analytics():
     })
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')
