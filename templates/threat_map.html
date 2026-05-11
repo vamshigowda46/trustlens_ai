@@ -31,17 +31,34 @@
 .sev-MEDIUM   { color:#ffd700; }
 .sev-LOW      { color:#00d4ff; }
 .threat-map-wrap {
-  height: 520px; border-radius:16px; overflow:hidden;
-  border:1px solid var(--border); position:relative;
+  height: 560px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  position: relative;
+  box-shadow: inset 0 0 60px rgba(0, 212, 255, 0.04);
 }
-@media(max-width:768px) { .threat-map-wrap { height:340px; } }
+.threat-map-wrap .leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45) !important;
+}
+.threat-map-wrap .leaflet-control-zoom a {
+  background: #0c101a !important;
+  color: var(--neon-blue) !important;
+  border: 1px solid rgba(0, 212, 255, 0.25) !important;
+}
+@media (max-width: 768px) {
+  .threat-map-wrap {
+    height: 360px;
+  }
+}
 </style>
 {% endblock %}
 
 {% block body %}
 {% include "sidebar.html" %}
 
-<div class="main-content">
+<div class="scan-layout">
   <!-- Header -->
   <div class="dash-header mb-3">
     <div>
@@ -91,18 +108,18 @@
         <div class="threat-map-wrap" id="mapWrap">
           <div id="indiaMap"></div>
           <!-- Map overlay controls -->
-          <div style="position:absolute;top:12px;left:12px;z-index:1000;display:flex;flex-direction:column;gap:6px;">
+          <div class="threat-toolbar" style="position:absolute;top:12px;left:12px;z-index:1000;display:flex;flex-direction:column;gap:6px;">
             {% for ttype, color in [('All','#00d4ff'),('Phishing','#ff3366'),('Malware','#ff0000'),('OTP Scam','#00d4ff'),('Fake Job','#ff8c00')] %}
-            <button onclick="filterType('{{ ttype }}')" class="map-filter-btn" id="filter_{{ ttype.replace(' ','_') }}"
-              style="background:rgba(10,14,26,0.85);border:1px solid {{ color }};color:{{ color }};padding:3px 10px;border-radius:20px;font-size:.7rem;cursor:pointer;backdrop-filter:blur(10px);">
+            <button type="button" onclick="filterType('{{ ttype }}')" class="map-filter-btn" id="filter_{{ ttype.replace(' ','_') }}"
+              style="background:#0a0e1a;border:1px solid {{ color }};color:{{ color }};padding:5px 12px;border-radius:20px;font-size:.72rem;font-weight:600;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.35);">
               {{ ttype }}
             </button>
             {% endfor %}
           </div>
           <!-- Live counter overlay -->
-          <div style="position:absolute;bottom:12px;left:12px;z-index:1000;background:rgba(10,14,26,0.9);border:1px solid var(--border);border-radius:10px;padding:8px 14px;backdrop-filter:blur(10px);">
-            <div style="font-size:.7rem;color:var(--text-muted);">ACTIVE THREATS</div>
-            <div id="mapCounter" style="font-size:1.4rem;font-weight:800;color:var(--neon-red);">0</div>
+          <div style="position:absolute;bottom:12px;left:12px;z-index:1000;background:#0a0e1a;border:1px solid rgba(0,212,255,.22);border-radius:12px;padding:10px 16px;box-shadow:0 8px 28px rgba(0,0,0,.45);">
+            <div style="font-size:.68rem;color:var(--text-muted);letter-spacing:.08em;">ACTIVE MARKERS</div>
+            <div id="mapCounter" style="font-size:1.45rem;font-weight:800;color:var(--neon-red);font-variant-numeric:tabular-nums;">0</div>
           </div>
         </div>
       </div>
@@ -147,6 +164,8 @@
   </div>
 </div>
 
+{% endblock %}
+
 {% block extra_js %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -155,14 +174,35 @@ const map = L.map('indiaMap', {
   center: [22.5, 82.0],
   zoom: 5,
   zoomControl: true,
-  attributionControl: false,
-  minZoom: 4, maxZoom: 10
+  attributionControl: true,
+  minZoom: 4,
+  maxZoom: 10
 });
 
 // Dark tile layer
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '© CartoDB', subdomains: 'abcd', maxZoom: 19
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  subdomains: 'abcd',
+  maxZoom: 19
 }).addTo(map);
+
+map.whenReady(() => {
+  setTimeout(() => {
+    try {
+      map.invalidateSize();
+      map.fitBounds([[6.2, 67.8], [36.0, 97.6]], { padding: [32, 32], maxZoom: 6, animate: false });
+    } catch (e) {
+      map.setView([22.5, 82.0], 5);
+    }
+  }, 250);
+});
+
+window.addEventListener('resize', () => {
+  clearTimeout(window._threatMapResizeT);
+  window._threatMapResizeT = setTimeout(() => {
+    try { map.invalidateSize(); } catch (e) {}
+  }, 200);
+});
 
 // India boundary overlay (GeoJSON from public CDN)
 fetch('https://raw.githubusercontent.com/geohacker/india/master/state/india_state.geojson')
@@ -183,7 +223,14 @@ let allThreats   = [];
 let markers      = [];
 let typeChart    = null;
 let activeFilter = 'All';
-let feedCount    = 0;
+
+function escapeThreat(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 // ── Create pulse marker icon ──────────────────────────────────────────────────
 function makeIcon(color, severity) {
@@ -213,27 +260,28 @@ function renderMarkers(threats) {
 
   filtered.forEach(t => {
     const marker = L.marker([t.lat, t.lng], { icon: makeIcon(t.color, t.severity) });
+    const col = escapeThreat(t.color);
     marker.bindPopup(`
       <div style="min-width:180px;">
-        <div style="font-weight:700;color:${t.color};font-size:.9rem;margin-bottom:6px;">
-          <i class="bi bi-geo-alt-fill me-1"></i>${t.city}, ${t.state}
+        <div style="font-weight:700;color:${col};font-size:.9rem;margin-bottom:6px;">
+          <i class="bi bi-geo-alt-fill me-1"></i>${escapeThreat(t.city)}, ${escapeThreat(t.state)}
         </div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <span style="color:#8892b0;font-size:.75rem;">Type</span>
-          <span style="color:${t.color};font-weight:600;font-size:.78rem;">${t.type}</span>
+          <span style="color:${col};font-weight:600;font-size:.78rem;">${escapeThreat(t.type)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <span style="color:#8892b0;font-size:.75rem;">Severity</span>
-          <span class="sev-${t.severity}" style="font-weight:700;font-size:.78rem;">${t.severity}</span>
+          <span class="sev-${escapeThreat(t.severity)}" style="font-weight:700;font-size:.78rem;">${escapeThreat(t.severity)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <span style="color:#8892b0;font-size:.75rem;">Source</span>
-          <span style="color:#e8eaf6;font-size:.75rem;">${t.source}</span>
+          <span style="color:#e8eaf6;font-size:.75rem;">${escapeThreat(t.source)}</span>
         </div>
         <div style="margin-top:8px;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px;font-size:.75rem;color:#8892b0;">
-          ${t.detail}
+          ${escapeThreat(t.detail)}
         </div>
-        <div style="margin-top:6px;font-size:.7rem;color:#8892b0;text-align:right;">${t.time_ago}</div>
+        <div style="margin-top:6px;font-size:.7rem;color:#8892b0;text-align:right;">${escapeThreat(t.time_ago)}</div>
       </div>`, { className: 'threat-popup' });
     marker.addTo(map);
     markers.push(marker);
@@ -286,22 +334,24 @@ function renderTypeChart(typeCounts) {
   });
 }
 
-// ── Render live feed ──────────────────────────────────────────────────────────
-function addFeedItems(threats) {
+// ── Live feed (rebuilt each refresh — no duplicate spam) ─────────────────────
+function renderLiveFeed(threats) {
   const feed = document.getElementById('liveFeed');
-  const recent = threats.slice(0, 5);
-  recent.forEach(t => {
+  if (!feed) return;
+  feed.innerHTML = '';
+  (threats || []).slice(0, 10).forEach((t) => {
     const div = document.createElement('div');
     div.className = 'feed-item';
-    div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;background:rgba(255,255,255,0.02);border:1px solid var(--border);font-size:.75rem;';
+    div.style.cssText =
+      'display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:.76rem;';
+    const c = escapeThreat(t.color);
     div.innerHTML = `
-      <span style="width:7px;height:7px;border-radius:50%;background:${t.color};flex-shrink:0;box-shadow:0 0 5px ${t.color};"></span>
-      <span style="color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.city}</span>
-      <span style="color:${t.color};white-space:nowrap;">${t.type}</span>
-      <span style="color:var(--text-muted);white-space:nowrap;">${t.time_ago}</span>`;
-    feed.insertBefore(div, feed.firstChild);
+      <span style="width:7px;height:7px;border-radius:50%;background:${c};flex-shrink:0;box-shadow:0 0 6px ${c};"></span>
+      <span style="color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeThreat(t.city)}</span>
+      <span style="color:${c};white-space:nowrap;">${escapeThreat(t.type)}</span>
+      <span style="color:var(--text-muted);white-space:nowrap;">${escapeThreat(t.time_ago)}</span>`;
+    feed.appendChild(div);
   });
-  while (feed.children.length > 12) feed.removeChild(feed.lastChild);
 }
 
 // ── Update stat counters ──────────────────────────────────────────────────────
@@ -321,26 +371,42 @@ function updateStats(data) {
 // ── Main load function ────────────────────────────────────────────────────────
 async function loadThreats() {
   try {
-    const r    = await fetch('/api/threats');
+    const r = await fetch('/api/threats');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     allThreats = data.threats || [];
 
     renderMarkers(allThreats);
     renderStateList(data.state_counts || {});
-    renderTypeChart(data.type_counts  || {});
-    addFeedItems(allThreats);
+    renderTypeChart(data.type_counts || {});
+    renderLiveFeed(allThreats);
     updateStats(data);
-  } catch(e) {
+
+    setTimeout(() => {
+      try {
+        map.invalidateSize();
+      } catch (e) {}
+    }, 100);
+  } catch (e) {
     console.error('Threat load error:', e);
+    document.getElementById('sourceBadge').innerHTML =
+      '<i class="bi bi-wifi-off me-1"></i>Could not load /api/threats';
   }
 }
 
 // ── Filter by type ────────────────────────────────────────────────────────────
 function filterType(type) {
   activeFilter = type;
-  document.querySelectorAll('.map-filter-btn').forEach(b => b.style.opacity = '0.5');
+  document.querySelectorAll('.map-filter-btn').forEach((b) => {
+    b.style.opacity = '0.45';
+    b.style.boxShadow = 'none';
+    b.style.outline = 'none';
+  });
   const btn = document.getElementById('filter_' + type.replace(' ', '_'));
-  if (btn) btn.style.opacity = '1';
+  if (btn) {
+    btn.style.opacity = '1';
+    btn.style.boxShadow = '0 0 14px rgba(0,212,255,0.35)';
+  }
   renderMarkers(allThreats);
 }
 
@@ -349,10 +415,10 @@ Chart.defaults.color = '#8892b0';
 Chart.defaults.borderColor = 'rgba(0,212,255,0.06)';
 
 loadThreats();
-setInterval(loadThreats, 15000);  // refresh every 15s
+filterType('All');
+setInterval(loadThreats, 20000);
 setInterval(() => {
   document.getElementById('mapTime').textContent = new Date().toLocaleTimeString();
 }, 1000);
 </script>
-{% endblock %}
 {% endblock %}

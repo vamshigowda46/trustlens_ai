@@ -11,7 +11,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
-import ai_engine, verifier
+import ai_engine, verifier, threat_intel
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -74,6 +74,7 @@ def save_scan(user_id, scan_type, input_text, result, trust_score, explanation):
         logger.error("save_scan error: %s", e)
 
 def get_dashboard_stats(uid):
+    """Dashboard aggregates (no recent list / no 7-day series — charts use by_type + breakdown)."""
     cur = mysql.connection.cursor()
     cur.execute("SELECT COUNT(*) as total FROM scans WHERE user_id=%s", (uid,))
     total = cur.fetchone()['total']
@@ -85,17 +86,29 @@ def get_dashboard_stats(uid):
     safe_count = cur.fetchone()['c']
     cur.execute("SELECT scan_type, COUNT(*) as c FROM scans WHERE user_id=%s GROUP BY scan_type", (uid,))
     by_type = cur.fetchall()
-    cur.execute("SELECT * FROM scans WHERE user_id=%s ORDER BY timestamp DESC LIMIT 5", (uid,))
-    recent = cur.fetchall()
     cur.execute("SELECT COUNT(*) as c FROM scans WHERE user_id=%s AND DATE(timestamp)=CURDATE()", (uid,))
     today_count = cur.fetchone()['c']
-    cur.execute(
-        "SELECT DATE(timestamp) as day, COUNT(*) as c FROM scans "
-        "WHERE user_id=%s AND timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY) "
-        "GROUP BY DATE(timestamp) ORDER BY day", (uid,))
-    weekly = cur.fetchall()
+
+    cur.execute("SELECT result, COUNT(*) as c FROM scans WHERE user_id=%s GROUP BY result", (uid,))
+    rb_rows = cur.fetchall()
     cur.close()
-    return total, scam_count, safe_count, by_type, recent, today_count, weekly
+
+    safe_r = {'SAFE', 'VERIFIED'}
+    dangerous_r = {'FAKE', 'SCAM', 'FRAUDULENT', 'DANGEROUS', 'BLACKLISTED'}
+    rb_safe = rb_suspicious = rb_dangerous = 0
+    for row in rb_rows:
+        r = (row.get('result') or '').strip()
+        c = int(row.get('c') or 0)
+        if r in safe_r:
+            rb_safe += c
+        elif r in dangerous_r:
+            rb_dangerous += c
+        else:
+            rb_suspicious += c
+
+    result_breakdown = {'safe': rb_safe, 'suspicious': rb_suspicious, 'dangerous': rb_dangerous}
+
+    return total, scam_count, safe_count, by_type, today_count, result_breakdown
 
 # ── Security headers ───────────────────────────────────────────────────────────
 @app.after_request
@@ -164,10 +177,16 @@ def logout():
 @login_required
 def dashboard():
     uid = session['user_id']
-    total, scam_count, safe_count, by_type, recent, today_count, weekly = get_dashboard_stats(uid)
-    return render_template('dashboard.html', total=total, scam_count=scam_count,
-                           safe_count=safe_count, by_type=by_type, recent=recent,
-                           today_count=today_count, weekly=weekly)
+    total, scam_count, safe_count, by_type, today_count, result_breakdown = get_dashboard_stats(uid)
+    return render_template(
+        'dashboard.html',
+        total=total,
+        scam_count=scam_count,
+        safe_count=safe_count,
+        by_type=by_type,
+        today_count=today_count,
+        result_breakdown=result_breakdown,
+    )
 
 @app.route('/fake-job')
 @login_required
@@ -198,6 +217,21 @@ def website_scanner():
 @login_required
 def threat_map():
     return render_template('threat_map.html')
+
+
+@app.route('/api/threats')
+@login_required
+def api_threats():
+    """Aggregated threat intelligence for the live threat map."""
+    try:
+        return jsonify(threat_intel.get_live_threats())
+    except Exception as e:
+        logger.error("api_threats error: %s", e)
+        return jsonify({
+            "threats": [], "total": 0, "state_counts": {}, "type_counts": {},
+            "sev_counts": {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0},
+            "updated_at": 0, "sources": [], "error": "Could not load threat data.",
+        })
 
 @app.route('/qr-scanner')
 @login_required
@@ -346,8 +380,13 @@ def api_chatbot():
         data     = request.get_json(force=True) or {}
         user_msg = data.get('message', '').strip()[:500]
         if not user_msg:
-            return jsonify({"response": "Please type a message."})
-        bot_response = ai_engine.get_chatbot_response(user_msg)
+            return jsonify({"response": "Please type a message or use the microphone."})
+        history = data.get('history')
+        if not isinstance(history, list):
+            history = None
+        else:
+            history = history[-6:]  # last 3 turns max (user+bot pairs trimmed below in engine)
+        bot_response = ai_engine.get_chatbot_response(user_msg, history=history)
         try:
             cur = mysql.connection.cursor()
             cur.execute(
@@ -386,11 +425,14 @@ def api_report():
 @login_required
 def api_analytics():
     uid = session['user_id']
-    total, scam_count, safe_count, by_type, recent, today_count, weekly = get_dashboard_stats(uid)
+    total, scam_count, safe_count, by_type, today_count, result_breakdown = get_dashboard_stats(uid)
     return jsonify({
-        "total": total, "scam_count": scam_count, "safe_count": safe_count,
-        "today_count": today_count, "by_type": by_type,
-        "weekly": [{"day": str(r['day']), "c": r['c']} for r in weekly]
+        "total": total,
+        "scam_count": scam_count,
+        "safe_count": safe_count,
+        "today_count": today_count,
+        "by_type": by_type,
+        "result_breakdown": result_breakdown,
     })
 
 # ── WhatsApp Webhook (Twilio) ──────────────────────────────────────────────────
@@ -401,7 +443,7 @@ def whatsapp_webhook():
         body        = request.form.get('Body', '').strip()
         if not body:
             return '', 200
-        response_text = ai_engine.get_chatbot_response(body)
+        response_text = ai_engine.get_chatbot_response(body, history=None)
         twilio_sid   = os.environ.get('TWILIO_ACCOUNT_SID')
         twilio_token = os.environ.get('TWILIO_AUTH_TOKEN')
         twilio_from  = os.environ.get('TWILIO_WHATSAPP_FROM', 'whatsapp:+14155238886')

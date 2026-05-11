@@ -109,11 +109,11 @@
                 <div class="trust-bar-wrap" style="width:60px;flex-shrink:0;">
                   <div class="trust-bar"
                        style="width:{{ s.trust_score }}%;
-                              background:{% if s.trust_score >= 90 %}var(--neon-green){% elif s.trust_score >= 60 %}var(--neon-yellow){% else %}var(--neon-red){% endif %};">
+                              background:{% if s.trust_score >= 71 %}var(--neon-green){% elif s.trust_score >= 51 %}var(--neon-blue){% elif s.trust_score >= 31 %}#ffb020{% else %}var(--neon-red){% endif %};">
                   </div>
                 </div>
                 <span style="font-size:.85rem;font-weight:700;
-                             color:{% if s.trust_score >= 90 %}var(--neon-green){% elif s.trust_score >= 60 %}var(--neon-yellow){% else %}var(--neon-red){% endif %};">
+                             color:{% if s.trust_score >= 71 %}var(--neon-green){% elif s.trust_score >= 51 %}var(--neon-blue){% elif s.trust_score >= 31 %}#ffb020{% else %}var(--neon-red){% endif %};">
                   {{ s.trust_score }}
                 </span>
               </div>

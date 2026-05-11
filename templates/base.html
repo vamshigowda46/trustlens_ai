@@ -26,7 +26,7 @@
       <div class="chatbot-avatar"><i class="bi bi-robot"></i></div>
       <div>
         <div style="font-weight:700;font-size:.9rem;">TrustLens AI Assistant</div>
-        <div class="chatbot-status">Online – Ready to help</div>
+        <div class="chatbot-status">Session-aware · Voice in supported browsers</div>
       </div>
       <button onclick="toggleChat()" style="margin-left:auto;background:none;border:none;color:var(--text-muted);font-size:1.1rem;cursor:pointer;">
         <i class="bi bi-x-lg"></i>
@@ -48,13 +48,18 @@
     </div>
 
     <div class="chatbot-input-row">
-      <input type="text" class="chatbot-input form-control" id="chatInput"
-             placeholder="Ask about digital fraud..." maxlength="300"
-             onkeydown="if(event.key==='Enter') sendChat()" />
-      <button class="chatbot-send" onclick="sendChat()">
+      <button type="button" class="chatbot-mic" id="chatMicBtn" title="Voice input (Chrome / Edge)" aria-label="Voice input">
+        <i class="bi bi-mic-fill" id="chatMicIcon"></i>
+      </button>
+      <textarea class="chatbot-input chatbot-textarea form-control" id="chatInput" rows="1"
+        placeholder="Ask about scams, QR codes, phishing… (Enter to send, Shift+Enter for new line)"
+        maxlength="600"
+        onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendChat(); }"></textarea>
+      <button type="button" class="chatbot-send" onclick="sendChat()" title="Send">
         <i class="bi bi-send-fill"></i>
       </button>
     </div>
+    <div class="chatbot-hint px-3 pb-2">Tip: enable mic permission. Last few replies are remembered for this tab only.</div>
   </div>
   {% endif %}
 

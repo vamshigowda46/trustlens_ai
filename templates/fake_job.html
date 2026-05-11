@@ -88,46 +88,61 @@
       </div>
 
       <!-- Result -->
-      <div id="resultOutput" style="display:none;">
-        <!-- Main result card -->
+      <div id="resultOutput" class="job-result-output" style="display:none;">
         <div class="glass-card result-main-card" id="resultMainCard">
-          <div class="result-top">
-            <div class="result-icon-wrap" id="resultIconWrap">
-              <i class="bi bi-shield-check" id="resultIcon"></i>
-            </div>
+          <div class="job-result-grid">
             <div class="result-info">
               <div class="result-badge-wrap">
                 <span class="result-badge badge-safe" id="resultBadge">SAFE</span>
               </div>
               <div class="result-title" id="resultText">—</div>
-              <p class="result-explanation" id="explanationText">—</p>
+              <div class="model-hint" id="modelHint"></div>
+              <div class="ai-explain-block" id="aiExplainBlock" style="display:none;">
+                <div id="explanationText"></div>
+              </div>
+            </div>
+            <div>
+              <div class="trust-meter job-trust-meter">
+                <svg width="180" height="180" viewBox="0 0 160 160">
+                  <circle class="trust-circle-bg" cx="80" cy="80" r="65"/>
+                  <circle class="trust-circle" id="trustCircle" cx="80" cy="80" r="65"
+                          fill="none" stroke="#00ff88" stroke-width="10" stroke-linecap="round"
+                          stroke-dasharray="408.4" stroke-dashoffset="408.4"/>
+                </svg>
+                <div class="trust-score-text">
+                  <div class="trust-score-num" id="trustNum">0</div>
+                  <div class="trust-score-label">Trust Score</div>
+                </div>
+              </div>
+              <div class="job-tier-label" id="riskLabel">—</div>
+              <div class="job-confidence-row">
+                <span style="color:var(--text-muted);">Model confidence</span>
+                <strong id="confidencePct">0%</strong>
+              </div>
             </div>
           </div>
-
-          <!-- Trust score bar -->
-          <div class="trust-score-section mt-3">
-            <div class="d-flex justify-content-between mb-1">
-              <span style="font-size:.8rem;color:var(--text-muted);">Trust Score</span>
-              <strong id="trustNum" style="font-size:.9rem;">0</strong>
-            </div>
-            <div class="trust-bar-wrap"><div class="trust-bar" id="trustBar" style="width:0%;"></div></div>
-            <div id="riskLabel" style="font-size:.75rem;margin-top:4px;font-weight:600;"></div>
+          <div class="job-trust-bar-wrap">
+            <div class="trust-bar" id="trustBar" style="width:0%;"></div>
           </div>
         </div>
 
-        <!-- Google Verification Card -->
+        <div class="glass-card mt-3" id="warningsCard" style="display:none;">
+          <div class="card-section-label" style="color:var(--trust-amber);">
+            <i class="bi bi-cone-striped me-2"></i>Risk indicators
+          </div>
+          <div class="job-warnings-grid" id="warningsList"></div>
+        </div>
+
         <div class="glass-card mt-3" id="googleCard">
           <div class="card-section-label"><i class="bi bi-google me-2" style="color:#4285f4;"></i>Google Verification</div>
           <div id="googleResult"></div>
         </div>
 
-        <!-- Red Flags -->
         <div class="glass-card mt-3" id="redFlagsCard" style="display:none;">
-          <div class="card-section-label" style="color:var(--neon-red);"><i class="bi bi-exclamation-octagon me-2"></i>Red Flags Detected</div>
+          <div class="card-section-label" style="color:var(--neon-red);"><i class="bi bi-exclamation-octagon me-2"></i>Pattern rules triggered</div>
           <div id="redFlagsList"></div>
         </div>
 
-        <!-- Keywords -->
         <div class="glass-card mt-3" id="keywordsCard" style="display:none;">
           <div class="card-section-label"><i class="bi bi-tags me-2" style="color:var(--neon-yellow);"></i>Suspicious Keywords</div>
           <div id="keywordsList"></div>
@@ -136,6 +151,8 @@
     </div>
   </div>
 </div>
+
+{% endblock %}
 
 {% block extra_js %}
 <script>
@@ -164,9 +181,11 @@ function fillSample(type) {
 
 document.getElementById('jobForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  document.getElementById('defaultState').style.display  = 'none';
-  document.getElementById('resultOutput').style.display  = 'none';
-  document.getElementById('scanLoader').style.display    = 'block';
+  const out = document.getElementById('resultOutput');
+  out.classList.remove('result-animate-in');
+  document.getElementById('defaultState').style.display = 'none';
+  out.style.display = 'none';
+  document.getElementById('scanLoader').style.display = 'block';
 
   try {
     const data = await postScan('/api/scan/job', {
@@ -177,59 +196,117 @@ document.getElementById('jobForm').addEventListener('submit', async function(e) 
     });
     document.getElementById('scanLoader').style.display = 'none';
     renderJobResult(data);
-  } catch(err) {
+  } catch (err) {
     document.getElementById('scanLoader').style.display = 'none';
     document.getElementById('defaultState').style.display = 'block';
   }
 });
 
-function renderJobResult(data) {
-  const isGood = data.result === 'SAFE';
-  const color  = isGood ? 'var(--neon-green)' : 'var(--neon-red)';
-  const icon   = isGood ? 'bi-shield-check' : 'bi-shield-x';
+function escapeJobHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-  // Main card
-  document.getElementById('resultIcon').className = `bi ${icon}`;
-  document.getElementById('resultIcon').style.color = color;
-  document.getElementById('resultIconWrap').style.background = isGood ? 'rgba(0,255,136,0.1)' : 'rgba(255,51,102,0.1)';
+function formatJobExplanation(txt) {
+  if (!txt) return '';
+  return txt.split(/\n\n+/).map((p) => {
+    const esc = escapeJobHtml(p.trim());
+    return '<p class="ai-explain-p">' + esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') + '</p>';
+  }).join('');
+}
+
+function renderJobResult(data) {
+  const score = Number(data.trust_score) || 0;
+  const pres = trustPresentationFromScore(score);
+  const color = pres.color;
 
   const badge = document.getElementById('resultBadge');
-  badge.textContent = data.result;
-  badge.className = `result-badge ${isGood ? 'badge-safe' : 'badge-danger'}`;
+  badge.textContent = pres.badgeText;
+  badge.className = 'result-badge ' + pres.badgeClass;
 
-  const titles = { 'FAKE': '🚨 Fake Job Detected', 'SAFE': '✅ Job Appears Legitimate' };
-  document.getElementById('resultText').textContent = titles[data.result] || data.result;
-  document.getElementById('explanationText').textContent = data.explanation || '';
+  document.getElementById('resultText').textContent = pres.headline;
+  document.getElementById('modelHint').textContent =
+    'Classifier label: ' + (data.result || '—') + ' · Score ' + score + '/100 · ' + (data.risk_level || '');
 
-  // Trust bar
-  document.getElementById('trustNum').textContent = data.trust_score;
-  document.getElementById('trustNum').style.color = color;
+  const explainEl = document.getElementById('explanationText');
+  const explainBlock = document.getElementById('aiExplainBlock');
+  if (data.explanation) {
+    explainEl.innerHTML = formatJobExplanation(data.explanation);
+    explainBlock.style.display = 'block';
+  } else {
+    explainEl.innerHTML = '';
+    explainBlock.style.display = 'none';
+  }
+
+  const conf = typeof data.confidence === 'number' ? data.confidence : 0;
+  document.getElementById('confidencePct').textContent = conf + '%';
+
+  const numEl = document.getElementById('trustNum');
+  const circumference = 408.4;
+  const offset = circumference - (score / 100) * circumference;
+  const circle = document.getElementById('trustCircle');
+  circle.setAttribute('stroke', color);
+  circle.style.strokeDashoffset = circumference;
+  numEl.textContent = '0';
+  numEl.style.color = color;
+
+  let cur = 0;
+  const step = Math.max(1, Math.ceil(score / 36));
+  clearInterval(window._jobTrustTimer);
+  window._jobTrustTimer = setInterval(() => {
+    cur = Math.min(cur + step, score);
+    numEl.textContent = cur;
+    if (cur >= score) clearInterval(window._jobTrustTimer);
+  }, 28);
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    circle.style.strokeDashoffset = offset;
+  }));
+
   const bar = document.getElementById('trustBar');
+  bar.style.width = '0%';
   bar.style.background = color;
-  setTimeout(() => { bar.style.width = data.trust_score + '%'; }, 100);
+  setTimeout(() => { bar.style.width = score + '%'; }, 120);
+
   const riskEl = document.getElementById('riskLabel');
-  riskEl.textContent = data.risk_level || '';
+  riskEl.textContent = data.risk_level || trustScoreLabel(score);
   riskEl.style.color = color;
 
-  // Google verification
+  const warnCard = document.getElementById('warningsCard');
+  const warnings = data.warnings || [];
+  if (warnings.length) {
+    document.getElementById('warningsList').innerHTML = warnings.map((w) => `
+      <div class="job-warning-chip">
+        <i class="bi ${w.icon || 'bi-exclamation-triangle-fill'}"></i>
+        <div>
+          <div class="jw-title">${escapeJobHtml(w.label)}</div>
+          <p class="jw-detail">${escapeJobHtml(w.detail || '')}</p>
+        </div>
+      </div>`).join('');
+    warnCard.style.display = 'block';
+  } else {
+    warnCard.style.display = 'none';
+  }
+
   const gEl = document.getElementById('googleResult');
   if (data.company_found !== undefined) {
-    const gColor = data.company_found ? 'var(--neon-green)' : 'var(--neon-red)';
-    const gIcon  = data.company_found ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+    const gIcon = data.company_found ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
     const gClass = data.company_found ? 'check-pass' : 'check-fail';
     gEl.innerHTML = `
       <div class="report-check-item ${gClass} mb-2">
         <i class="bi ${gIcon}"></i>
-        <span>${data.google_info || ''}</span>
+        <span>${escapeJobHtml(data.google_info || '')}</span>
       </div>
-      ${data.google_url ? `<a href="${data.google_url}" target="_blank" class="google-link"><i class="bi bi-box-arrow-up-right me-1"></i>Search on Google</a>` : ''}`;
+      ${data.google_url ? `<a href="${String(data.google_url).replace(/"/g, '&quot;')}" target="_blank" rel="noopener" class="google-link"><i class="bi bi-box-arrow-up-right me-1"></i>Search on Google</a>` : ''}`;
   } else {
-    gEl.innerHTML = `<div class="report-check-item check-warn"><i class="bi bi-info-circle"></i> Google verification unavailable</div>`;
+    gEl.innerHTML = '<div class="report-check-item check-warn"><i class="bi bi-info-circle"></i> Google verification unavailable</div>';
   }
 
-  // Red flags
   if (data.red_flags && data.red_flags.length) {
-    document.getElementById('redFlagsList').innerHTML = data.red_flags.map(f => `
+    document.getElementById('redFlagsList').innerHTML = data.red_flags.map((f) => `
       <div class="red-flag-card severity-${f.severity}">
         <i class="bi ${f.icon} red-flag-icon" style="color:${f.color};"></i>
         <div><span class="red-flag-label">${f.label}</span>
@@ -240,17 +317,19 @@ function renderJobResult(data) {
     document.getElementById('redFlagsCard').style.display = 'none';
   }
 
-  // Keywords
   if (data.keywords && data.keywords.length) {
-    document.getElementById('keywordsList').innerHTML = data.keywords.map(k =>
-      `<span class="keyword-tag"><i class="bi bi-exclamation-circle me-1"></i>${k}</span>`).join('');
+    document.getElementById('keywordsList').innerHTML = data.keywords.map((k) =>
+      `<span class="keyword-tag"><i class="bi bi-exclamation-circle me-1"></i>${escapeJobHtml(k)}</span>`).join('');
     document.getElementById('keywordsCard').style.display = 'block';
   } else {
     document.getElementById('keywordsCard').style.display = 'none';
   }
 
-  document.getElementById('resultOutput').style.display = 'block';
+  const out = document.getElementById('resultOutput');
+  out.classList.remove('result-animate-in');
+  out.style.display = 'block';
+  void out.offsetWidth;
+  requestAnimationFrame(() => out.classList.add('result-animate-in'));
 }
 </script>
-{% endblock %}
 {% endblock %}

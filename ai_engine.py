@@ -167,9 +167,31 @@ def _score_from_prob(fraud_prob):
     return max(0, min(100, int((1 - fraud_prob) * 100)))
 
 def _risk_level(score):
-    if score >= 90: return "Safe"
-    if score >= 60: return "Suspicious"
+    """Trust score bands (0–100) used across scan UIs."""
+    if score >= 71:
+        return "Safe"
+    if score >= 51:
+        return "Moderate Risk"
+    if score >= 31:
+        return "Suspicious"
     return "Dangerous"
+
+
+def _trust_tier_slug(score):
+    """Short key for CSS / clients."""
+    if score >= 71:
+        return "safe"
+    if score >= 51:
+        return "moderate"
+    if score >= 31:
+        return "suspicious"
+    return "dangerous"
+
+
+def _model_confidence_from_fraud_prob(fraud_prob):
+    """How strongly the model leans fake vs legitimate (0–100)."""
+    p = float(fraud_prob)
+    return max(0, min(100, int(round(abs(p - 0.5) * 200))))
 
 def get_red_flags(text):
     """Return triggered red flag dicts for explainable AI output."""
@@ -184,6 +206,126 @@ def get_red_flags(text):
                 "severity": rule["severity"]
             })
     return triggered
+
+
+def _collect_job_warnings(full_text: str, salary: str, company_found: bool, company: str) -> list:
+    """Structured warning chips for the Fake Job UI."""
+    t = full_text.lower()
+    salary_l = (salary or "").lower()
+    warnings = []
+
+    fake_domain_patterns = (
+        r"\.tk\b", r"\.ml\b", r"\.ga\b", r"\.cf\b", r"\.gq\b",
+        r"bit\.ly/", r"tinyurl\.", r"t\.me/", r"wa\.me/", r"@\w+\.(tk|ml|xyz)\b",
+    )
+    if any(re.search(p, t) for p in fake_domain_patterns):
+        warnings.append({
+            "id": "fake_domains",
+            "label": "Suspicious domain / short link",
+            "detail": "The text contains disposable TLDs or URL shorteners often used in scams.",
+            "icon": "bi-globe2",
+        })
+
+    high_pay_hints = (
+        "80000", "80,000", "90000", "1 lakh", "2 lakh", "50000", "50,000",
+        "70000", "70,000", "60000", "60,000", "5000 per day", "earn 5000",
+        "weekly payment", "daily payment", "per month", "lpa",
+    )
+    easy_role_hints = ("no experience", "data entry", "typing work", "simple task", "whatsapp only", "anyone can")
+    if any(x in salary_l or x in t for x in high_pay_hints) and any(x in t for x in easy_role_hints):
+        warnings.append({
+            "id": "suspicious_salary",
+            "label": "Suspicious salary vs. role",
+            "detail": "Very high pay combined with minimal requirements is a common job-scam pattern.",
+            "icon": "bi-currency-rupee",
+        })
+
+    if "urgent" in t and any(w in t for w in ("hiring", "vacancy", "apply now", "limited seat", "act now")):
+        warnings.append({
+            "id": "urgent_hiring",
+            "label": "Urgent hiring pressure",
+            "detail": "Aggressive urgency ('limited seats', 'apply now') is used to bypass careful review.",
+            "icon": "bi-alarm-fill",
+        })
+
+    payment_patterns = (
+        "registration fee", "processing fee", "advance fee", "pay to join",
+        "activation fee", "send money", "wire transfer", "upi payment",
+        "paytm", "google pay", "account number", "ifsc",
+    )
+    if any(p in t for p in payment_patterns):
+        warnings.append({
+            "id": "payment_requests",
+            "label": "Payment or money transfer",
+            "detail": "Legitimate employers rarely ask for upfront fees or informal transfers before hiring.",
+            "icon": "bi-cash-stack",
+        })
+
+    if company and company.strip() and not company_found:
+        warnings.append({
+            "id": "no_company_presence",
+            "label": "Weak company presence online",
+            "detail": "The employer name did not match prominent Google results — verify on official careers pages.",
+            "icon": "bi-building-x",
+        })
+
+    return warnings
+
+
+def _build_job_ai_explanation(
+    score, risk_level, fraud_prob, model_result, warnings, red_flags, google_data, hits,
+):
+    """Narrative explanation aligned with trust tier and signals."""
+    lines = []
+    lines.append(
+        f"TrustLens scored this posting **{score}/100** ({risk_level}). "
+        f"The model estimates a **{fraud_prob * 100:.0f}%** fraud likelihood "
+        f"({'classified as FAKE' if model_result == 'FAKE' else 'classified as likely legitimate'})."
+    )
+
+    if risk_level == "Safe":
+        lines.append(
+            "Overall language and structure look consistent with genuine job ads: "
+            "no dominant fee scams, coercion, or impersonation patterns in the scan."
+        )
+    elif risk_level == "Moderate Risk":
+        lines.append(
+            "Some mixed signals appear. Review salary claims, contact channels, and whether the employer "
+            "matches an official website before sharing personal documents."
+        )
+    elif risk_level == "Suspicious":
+        lines.append(
+            "Multiple cautionary signals overlap. Treat as high risk until you confirm the company "
+            "through an independent source (official site, LinkedIn, or known HR email)."
+        )
+    else:
+        lines.append(
+            "Strong scam-style patterns detected. Do not pay any fee or share ID, bank, or OTP details "
+            "based on this posting alone."
+        )
+
+    if warnings:
+        lines.append("**Raised indicators:** " + "; ".join(w["label"] for w in warnings) + ".")
+
+    if hits:
+        lines.append(f"Keyword hits include: {', '.join(hits[:6])}.")
+
+    if red_flags:
+        lines.append(
+            "Rule-based checks flagged: "
+            + ", ".join(r["label"] for r in red_flags[:5])
+            + ("." if len(red_flags) <= 5 else ", and more.")
+        )
+
+    if google_data.get("found"):
+        lines.append("Google search suggested recognizable web presence for the company name.")
+    elif (google_data.get("info") or "").lower().startswith("could not"):
+        lines.append("Company verification via Google was inconclusive (network or blocking).")
+    elif google_data.get("info"):
+        lines.append(f"Company check: {google_data['info']}")
+
+    return "\n\n".join(lines)
+
 
 # ── Detection Functions ────────────────────────────────────────────────────────
 def detect_fake_job(title, company, salary, description):
@@ -202,22 +344,28 @@ def detect_fake_job(title, company, salary, description):
 
     score = _score_from_prob(prob)
     result = "FAKE" if prob > 0.5 else "SAFE"
+    risk_level = _risk_level(score)
+    trust_tier = _trust_tier_slug(score)
+    confidence = _model_confidence_from_fraud_prob(prob)
+    warnings = _collect_job_warnings(text, salary, google_data["found"], company)
 
-    if hits:
-        explanation = f"Suspicious keywords: {', '.join(hits[:5])}."
-    elif not google_data["found"] and company.strip():
-        explanation = f"Company '{company}' not found on Google. Unverified employer."
-    elif result == "FAKE":
-        explanation = "Job posting shows multiple fraud indicators."
-    else:
-        explanation = "Job posting appears legitimate with no major red flags."
+    explanation = _build_job_ai_explanation(
+        score, risk_level, prob, result, warnings, red_flags, google_data, hits,
+    )
 
     return {
-        "result": result, "trust_score": score, "risk_level": _risk_level(score),
-        "explanation": explanation, "keywords": hits[:8], "red_flags": red_flags,
+        "result": result,
+        "trust_score": score,
+        "risk_level": risk_level,
+        "trust_tier": trust_tier,
+        "confidence": confidence,
+        "warnings": warnings,
+        "explanation": explanation,
+        "keywords": hits[:8],
+        "red_flags": red_flags,
         "company_found": google_data["found"],
         "google_info": google_data["info"],
-        "google_url": google_data["url"]
+        "google_url": google_data["url"],
     }
 
 def detect_scam_message(message):
@@ -441,7 +589,15 @@ CHATBOT_KB = [
     },
     {
         "triggers": ["hello", "hi", "hey", "help", "what can you do"],
-        "response": "👋 **Hello! I'm TrustLens AI Assistant.**\n\nI can help you with:\n\n🔍 Identifying fake jobs\n📱 Detecting scam messages\n🌐 Checking website safety\n💰 Spotting loan scams\n📈 Avoiding investment fraud\n🏛️ Verifying RBI/SEBI companies\n\nAsk me anything about digital fraud or cybersecurity!"
+        "response": "👋 **Hello! I'm TrustLens AI Assistant.**\n\nI can help you with:\n\n🔍 Identifying fake jobs\n📱 Detecting scam messages\n🌐 Checking website safety\n💰 Spotting loan scams\n📈 Avoiding investment fraud\n🏛️ Verifying RBI/SEBI companies\n📷 **QR Scam Scanner** for suspicious payment codes\n🗺️ **Threat Map** for India-focused scam activity\n\nAsk me anything about digital fraud or cybersecurity — I remember our recent messages in this session."
+    },
+    {
+        "triggers": ["qr code", "qr scam", "upi qr", "scan qr", "qr scanner"],
+        "response": "📷 **QR / UPI safety:**\n\n• Never scan random QR codes from strangers or \"prize\" messages\n• Check the payee (pa=) name in UPI links before paying\n• Scammers use pre-filled amounts (`am=`) and urgent wording\n• If a QR opens a website, verify the domain first\n\n✅ Open **QR Scam Scanner** — upload a screenshot or paste the raw `upi://` text for an instant risk check."
+    },
+    {
+        "triggers": ["threat map", "cyber map", "live threat", "india threat"],
+        "response": "🗺️ **Threat Map:**\n\n• Shows simulated + API-fed scam activity across Indian states (when keys are configured)\n• Use filters to focus on phishing, malware, OTP scams, etc.\n• Great for awareness — always verify alerts with official sources too\n\n✅ Open **Threat Map** from the sidebar and hit refresh for the latest batch."
     },
     {
         "triggers": ["report", "how to report", "report scam", "report fraud"],
@@ -449,12 +605,46 @@ CHATBOT_KB = [
     },
 ]
 
-def get_chatbot_response(user_message):
-    """Match user message to knowledge base and return response."""
+def get_chatbot_response(user_message, history=None):
+    """
+    Match user message to knowledge base; optional `history` is a list of
+    dicts like {"user": "...", "bot": "..."} for multi-turn context.
+    """
     msg_lower = user_message.lower().strip()
+    combined = msg_lower
+    if history:
+        parts = []
+        for h in history[-4:]:
+            if not isinstance(h, dict):
+                continue
+            u, b = (h.get("user") or ""), (h.get("bot") or "")
+            parts.append(u + " " + b)
+        combined = (" ".join(parts) + " " + msg_lower).lower()
+
+    # Session-style short replies (avoid matching substrings like "hi" inside "phishing")
+    if history and isinstance(history[-1], dict):
+        if any(w in msg_lower for w in ("thanks", "thank you", "thankyou", "thx")):
+            return (
+                "Glad it helped. If something still feels wrong, use the scanners before paying or sharing OTPs — "
+                "and you can always ask a follow-up here; I keep the last few messages in mind for this session."
+            )
+        if any(w in msg_lower for w in ("bye", "goodbye", "see you")):
+            return "Stay safe online. Come back anytime you want a second opinion on a link, job, or message."
+
+    followups = ("tell me more", "more detail", "elaborate", "what else", "and then", "what should i do")
+    if any(f in msg_lower for f in followups) and history:
+        return (
+            "🧠 **Building on our chat:**\n\n"
+            "1. If it's a **link or site** → paste it into **Website Scanner**.\n"
+            "2. If it's a **job or offer text** → **Fake Job Detector**.\n"
+            "3. If it's an **SMS / WhatsApp** → **Scam Message**.\n"
+            "4. For **money / broker / app names** → **RBI/SEBI Verifier**.\n\n"
+            "Paste the exact text next — concrete details beat guesswork."
+        )
 
     for entry in CHATBOT_KB:
-        if any(trigger in msg_lower for trigger in entry["triggers"]):
+        triggers = entry["triggers"]
+        if any((t in msg_lower if len(t) <= 3 else t in combined) for t in triggers):
             return entry["response"]
 
     if any(w in msg_lower for w in ["scam", "fraud", "fake", "suspicious"]):
@@ -476,49 +666,157 @@ def get_chatbot_response(user_message):
 # ── QR Scam Scanner ────────────────────────────────────────────────────────────
 def scan_qr_image(image_path: str) -> dict:
     """Analyze a QR code image for UPI/payment fraud."""
-    import re
+    qr_text = ""
     try:
         from PIL import Image
-        img = Image.open(image_path)
-        # Try to decode QR using pillow-based approach
-        try:
-            import zxingcpp
-            results = zxingcpp.read_barcodes(img)
-            qr_text = results[0].text if results else ""
-        except Exception:
-            qr_text = ""
-    except Exception:
+        import numpy as np
+        import cv2
+
+        pil_img = Image.open(image_path)
+        gray = pil_img.convert("L")
+
+        def _try_cv2_decode(img_rgb_or_gray):
+            arr = np.asarray(img_rgb_or_gray)
+            if arr.ndim == 2:
+                bgr = cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+            elif arr.shape[-1] == 4:
+                bgr = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+            else:
+                bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            det = cv2.QRCodeDetector()
+            ok, decoded, _pts = det.detectAndDecode(bgr)
+            return decoded if ok and decoded else ""
+
+        # RGB, grayscale, then contrast-normalized grayscale (helps camera photos)
+        qr_text = _try_cv2_decode(pil_img.convert("RGB"))
+        if not qr_text:
+            qr_text = _try_cv2_decode(gray)
+        if not qr_text:
+            garr = np.asarray(gray)
+            garr = cv2.normalize(garr, None, 0, 255, cv2.NORM_MINMAX)
+            qr_text = _try_cv2_decode(garr)
+
+        if not qr_text:
+            try:
+                import zxingcpp
+                results = zxingcpp.read_barcodes(pil_img)
+                qr_text = results[0].text if results else ""
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("QR image scan error: %s", e)
         qr_text = ""
 
     if not qr_text:
         return {
-            "result": "UNREADABLE", "trust_score": 50,
-            "risk_level": "Unknown", "qr_text": "",
-            "explanation": "Could not decode QR code. Ensure image is clear.",
-            "issues": [], "red_flags": []
+            "result": "UNREADABLE",
+            "trust_score": 50,
+            "risk_level": _risk_level(50),
+            "qr_text": "",
+            "explanation": "Could not decode QR from this image. Try a sharper photo, better lighting, or paste the QR text / UPI link manually.",
+            "issues": ["QR decode failed — image may be blurry, cropped, or not a QR code"],
+            "red_flags": [],
         }
 
     return scan_qr_text(qr_text)
+
+
+# NPCI-style payment URI + VPA shape (prevents "upi:gibberish" scoring as safe)
+_UPI_PAY_URI = re.compile(r"^\s*upi://pay\?", re.I)
+# VPA: local@psp — PSP is typically bank / UPI app handle (letters + digits)
+_VPA_PATTERN = re.compile(
+    r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9.\-]{1,63}$"
+)
+
+
+def _extract_upi_pa(qr_text: str) -> str:
+    from urllib.parse import unquote
+
+    m = re.search(r"(?:^|[?&])pa=([^&]+)", qr_text, re.I)
+    if not m:
+        return ""
+    return unquote(m.group(1).strip())
+
+
+def _upi_structure_risk(qr_text: str) -> tuple[list, int]:
+    """
+    Return (issues, fraud_score_add) for malformed or non-standard UPI payloads.
+    Real merchant QRs should match upi://pay?pa=vpa@psp&...
+    """
+    issues: list = []
+    add = 0
+    raw = (qr_text or "").strip()
+    if not raw:
+        return issues, 0
+    low = raw.lower()
+
+    if low.startswith("http://") or low.startswith("https://"):
+        return issues, 0
+
+    pa = _extract_upi_pa(raw)
+    standard = bool(_UPI_PAY_URI.match(raw))
+    malformed_upi_colon = low.startswith("upi:") and not low.startswith("upi://")
+
+    # Typo / fake schemes like "upi:xxxx" without //
+    if malformed_upi_colon:
+        issues.append("Invalid UPI format: real payment QRs use upi://pay?… (not upi:…)")
+        add += 60
+    elif "upi://" in low and not standard:
+        issues.append("Non-standard UPI URI: expected upi://pay? followed by parameters")
+        add += 45
+
+    if standard and not pa:
+        issues.append("UPI payment link is missing the payee (pa=) field")
+        add += 55
+
+    if pa and not _VPA_PATTERN.match(pa):
+        issues.append(
+            f"Payee (pa) does not look like a valid UPI ID (expected name@bankhandle): {pa[:48]}"
+        )
+        add += 50
+
+    # Random pasted text (not already flagged as bad upi: scheme)
+    if (
+        not malformed_upi_colon
+        and not standard
+        and not pa
+        and len(raw) >= 8
+        and not low.startswith("http")
+        and "@" not in raw
+    ):
+        issues.append("Payload is not a valid UPI payment string — do not treat as a trusted payee")
+        add += 45
+
+    # Bare VPA without full URI — not necessarily fraud, but never "perfectly safe"
+    if pa and _VPA_PATTERN.match(pa) and not standard and "upi://" not in low:
+        issues.append("Bare UPI ID without full upi:// link — confirm payee in your UPI app before sending")
+        add += 18
+
+    return issues, min(add, 85)
+
 
 def scan_qr_text(qr_text: str) -> dict:
     """Analyze decoded QR text for UPI fraud indicators."""
     issues = []
     fraud_score = 0
     text_lower = qr_text.lower()
+    raw = (qr_text or "").strip()
 
-    # UPI ID checks
-    upi_match = re.search(r'pa=([^&]+)', qr_text)
-    upi_id = upi_match.group(1) if upi_match else ""
+    upi_id = _extract_upi_pa(qr_text)
+
+    struct_issues, struct_score = _upi_structure_risk(qr_text)
+    issues.extend(struct_issues)
+    fraud_score += struct_score
 
     suspicious_upi_words = ["lottery", "prize", "win", "free", "gift", "reward",
-                             "lucky", "claim", "bonus", "offer", "cashback100"]
+                           "lucky", "claim", "bonus", "offer", "cashback100"]
     for word in suspicious_upi_words:
         if word in text_lower:
             issues.append(f"Suspicious keyword in QR: '{word}'")
             fraud_score += 25
 
     # Check for amount pre-filled (scam tactic)
-    if "am=" in qr_text or "amount=" in qr_text.lower():
+    if "am=" in qr_text or "amount=" in text_lower:
         issues.append("Pre-filled amount detected — scammers pre-fill amounts")
         fraud_score += 20
 
@@ -538,13 +836,20 @@ def scan_qr_text(qr_text: str) -> dict:
     score = _score_from_prob(fraud_prob)
     result = "DANGEROUS" if fraud_prob > 0.5 else ("SUSPICIOUS" if fraud_prob > 0.2 else "SAFE")
 
+    if issues:
+        explanation = "; ".join(issues)
+    elif _UPI_PAY_URI.match(raw) and upi_id and _VPA_PATTERN.match(upi_id):
+        explanation = "Standard UPI payment QR format with a valid-looking payee ID. Still verify the recipient name in your app before paying."
+    else:
+        explanation = "QR code appears safe. No fraud indicators found."
+
     return {
         "result": result,
         "trust_score": score,
         "risk_level": _risk_level(score),
         "qr_text": qr_text[:300],
         "upi_id": upi_id,
-        "explanation": "; ".join(issues) if issues else "QR code appears safe. No fraud indicators found.",
+        "explanation": explanation,
         "issues": issues,
         "red_flags": get_red_flags(qr_text)
     }
