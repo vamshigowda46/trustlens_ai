@@ -210,18 +210,36 @@ textarea.form-control { resize: vertical; min-height: 120px; }
 .auth-card { width: 100%; max-width: 440px; }
 .auth-logo { font-size: 1.8rem; font-weight: 800; }
 
-/* ── Dashboard / Sidebar (solid panel — no glass) ── */
+/* ── Dashboard / Sidebar ── */
 .sidebar {
-  width: 260px;
+  width: var(--sidebar-width);
   background: var(--sidebar-bg);
   border-right: 1px solid rgba(0, 212, 255, 0.12);
-  min-height: 100vh;
-  min-height: 100dvh;
-  padding: 22px 14px 200px;
+  height: 100vh;
+  /* flex column so nav grows and user-card stays at bottom */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 22px 14px 0;
   position: fixed;
-  top: 0; left: 0;
-  z-index: 100;
+  top: 0;
+  left: 0;
+  z-index: 1050;
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+}
+/* nav section scrolls when there are many links */
+.sidebar-nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 8px;
+}
+/* user card pinned to bottom, never scrolls away */
+.sidebar-user-card {
+  flex: 0 0 auto;
+  padding: 12px 0 18px;
+  border-top: 1px solid rgba(0, 212, 255, 0.08);
+  margin-top: 4px;
 }
 .sidebar-logo { font-size: 1.15rem; font-weight: 700; padding: 8px 12px 20px; }
 .sidebar-link {
@@ -250,17 +268,25 @@ textarea.form-control { resize: vertical; min-height: 120px; }
   box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.08), inset 0 0 20px rgba(0, 212, 255, 0.06);
 }
 .sidebar-link.active i { color: var(--neon-blue); }
-.main-content { margin-left: var(--sidebar-width); padding: 32px; min-height: 100vh; }
+/* ── Main content area — sits to the right of the fixed sidebar ── */
+.main-content {
+  margin-left: var(--sidebar-width);
+  padding: 32px;
+  min-height: 100vh;
+}
 
 /* ── Scan Page Layout ── */
-.scan-layout { margin-left: var(--sidebar-width); padding: 32px; }
+.scan-layout {
+  margin-left: var(--sidebar-width);
+  padding: 32px;
+  min-height: 100vh;
+}
 
-/* Main column beside fixed sidebar — use on dashboard so inner blocks can use margin: auto without overlapping the drawer */
+/* Legacy wrapper kept for backwards-compat but no longer used on dashboard */
 .app-main--sidebar {
   margin-left: var(--sidebar-width);
   width: calc(100% - var(--sidebar-width));
   min-height: 100vh;
-  min-height: 100dvh;
   box-sizing: border-box;
 }
 
@@ -342,6 +368,32 @@ textarea.form-control { resize: vertical; min-height: 120px; }
 .section-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; }
 .section-sub { color: var(--text-muted); margin-bottom: 40px; }
 
+/* ── Mobile sidebar menu control (base MUST appear before @media max-width 768px or display:none overrides mobile flex) ── */
+.sidebar-toggle {
+  display: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: var(--sidebar-bg);
+  border: 1px solid rgba(0, 212, 255, 0.28);
+  color: var(--neon-blue);
+  font-size: 1.35rem;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  transition: background 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.sidebar-toggle:hover {
+  background: #0e1524;
+  border-color: var(--neon-blue);
+  transform: scale(1.04);
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .sidebar {
@@ -350,6 +402,7 @@ textarea.form-control { resize: vertical; min-height: 120px; }
     width: min(300px, 92vw);
     padding-top: max(22px, env(safe-area-inset-top));
     z-index: 1090;
+    height: 100vh;
   }
   .sidebar.open {
     transform: translateX(0);
@@ -361,19 +414,22 @@ textarea.form-control { resize: vertical; min-height: 120px; }
   }
   .main-content, .scan-layout {
     margin-left: 0 !important;
-    /* Top: clear status bar + header row; right: reserve space for fixed menu (FAB stays bottom-right) */
+    /* top padding clears the mobile menu toggle; right padding keeps content away from the FAB */
     padding-top: max(52px, calc(env(safe-area-inset-top) + 44px)) !important;
-    padding-right: calc(14px + 52px + env(safe-area-inset-right)) !important;
+    padding-right: calc(14px + env(safe-area-inset-right)) !important;
     padding-bottom: 20px !important;
     padding-left: calc(14px + env(safe-area-inset-left)) !important;
+    min-height: 100vh;
   }
   .sidebar-toggle {
-    display: flex;
+    display: flex !important;
     position: fixed;
     top: max(10px, env(safe-area-inset-top));
     right: max(10px, env(safe-area-inset-right));
     left: auto;
     z-index: 1100;
+    visibility: visible;
+    opacity: 1;
   }
   .hero-title { font-size: 2rem; }
   .chatbot-window { width: calc(100vw - 24px); right: 12px; bottom: 90px; }
@@ -395,7 +451,7 @@ textarea.form-control { resize: vertical; min-height: 120px; }
   .col-6 { flex: 0 0 100%; max-width: 100%; }
   .main-content, .scan-layout {
     padding-top: max(48px, calc(env(safe-area-inset-top) + 40px)) !important;
-    padding-right: calc(10px + 50px + env(safe-area-inset-right)) !important;
+    padding-right: calc(10px + env(safe-area-inset-right)) !important;
     padding-bottom: 16px !important;
     padding-left: calc(10px + env(safe-area-inset-left)) !important;
   }
@@ -796,31 +852,6 @@ textarea.form-control { resize: vertical; min-height: 120px; }
 .check-fail { background: rgba(255,51,102,0.08); color: var(--neon-red); border: 1px solid rgba(255,51,102,.15); }
 .check-warn { background: rgba(255,215,0,0.08); color: var(--neon-yellow); border: 1px solid rgba(255,215,0,.15); }
 
-/* ── Responsive sidebar toggle (mobile only — position/z-index set in @media max-width 768px) ── */
-.sidebar-toggle {
-  display: none;
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
-  background: var(--sidebar-bg);
-  border: 1px solid rgba(0, 212, 255, 0.28);
-  color: var(--neon-blue);
-  font-size: 1.35rem;
-  line-height: 1;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
-  transition: background 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
-  pointer-events: auto;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-.sidebar-toggle:hover {
-  background: #0e1524;
-  border-color: var(--neon-blue);
-  transform: scale(1.04);
-}
 /* ── Page Header ── */
 .page-title { font-weight:700; margin:0; font-size:1.2rem; }
 .page-sub   { color:var(--text-muted); font-size:.85rem; margin:2px 0 0; }
@@ -1513,4 +1544,11 @@ textarea.form-control { resize: vertical; min-height: 120px; }
   font-size: 0.68rem;
   color: #6b7a99;
   padding: 4px 2px 0;
+}
+
+/* Desktop: keep menu control hidden even if other rules load after mobile breakpoints */
+@media (min-width: 769px) {
+  .sidebar-toggle {
+    display: none !important;
+  }
 }

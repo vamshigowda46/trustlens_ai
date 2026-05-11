@@ -4,8 +4,8 @@
 {% block body %}
 {% include "sidebar.html" %}
 
-<main class="app-main app-main--sidebar">
-<div class="scan-layout dashboard-page">
+<div class="scan-layout">
+  <div class="dashboard-page">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}{% for cat, msg in messages %}
     <div class="alert alert-{{ cat }} alert-dismissible fade show mb-3">
@@ -101,7 +101,7 @@
     </div>
   </section>
 </div>
-</main>
+</div>
 
 {% endblock %}
 

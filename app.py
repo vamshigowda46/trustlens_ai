@@ -121,6 +121,9 @@ def security_headers(response):
 # ── Public Routes ──────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
+    # Authenticated users should always land on the main dashboard.
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
     return render_template('index.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -151,6 +154,9 @@ def register():
 @limiter.limit("500 per hour")
 
 def login():
+    # If already logged in, avoid bouncing users to scanners/login.
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
     if request.method == 'POST':
         email    = request.form.get('email', '').strip()
         password = request.form.get('password', '')
