@@ -135,7 +135,8 @@ def register():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("20 per hour")
+@limiter.limit("500 per hour")
+
 def login():
     if request.method == 'POST':
         email    = request.form.get('email', '').strip()
@@ -197,13 +198,6 @@ def website_scanner():
 @login_required
 def threat_map():
     return render_template('threat_map.html')
-
-@app.route('/api/threats')
-@login_required
-@limiter.limit("60 per hour")
-def api_threats():
-    from threat_intel import get_live_threats
-    return jsonify(get_live_threats())
 
 @app.route('/qr-scanner')
 @login_required
@@ -293,33 +287,6 @@ def api_scan_website():
     res  = ai_engine.scan_website(url)
     save_scan(session['user_id'], 'Website Scan', url,
               res['result'], res['trust_score'], res['explanation'])
-    # Save intel to dedicated table
-    intel = res.get('intel')
-    if intel:
-        try:
-            from urllib.parse import urlparse
-            cur = mysql.connection.cursor()
-            cur.execute(
-                "INSERT INTO website_intel "
-                "(user_id, url, domain, result, trust_score, reputation, scam_alert, "
-                "vt_malicious, vt_suspicious, scam_signals, trusted_signals, ai_summary) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (
-                    session['user_id'], url, intel.get('domain', ''),
-                    res['result'], res['trust_score'],
-                    intel.get('reputation', ''),
-                    1 if intel.get('scam_alert') else 0,
-                    intel.get('virustotal', {}).get('malicious', 0),
-                    intel.get('virustotal', {}).get('suspicious', 0),
-                    ','.join(intel.get('sentiment', {}).get('scam_signals', []))[:500],
-                    ','.join(intel.get('sentiment', {}).get('trusted_signals', []))[:500],
-                    intel.get('ai_summary', '')[:1000]
-                )
-            )
-            mysql.connection.commit()
-            cur.close()
-        except Exception as e:
-            logger.error("website_intel save error: %s", e)
     return jsonify(res)
 
 @app.route('/api/scan/qr', methods=['POST'])
@@ -438,7 +405,7 @@ def whatsapp_webhook():
         twilio_sid   = os.environ.get('TWILIO_ACCOUNT_SID')
         twilio_token = os.environ.get('TWILIO_AUTH_TOKEN')
         twilio_from  = os.environ.get('TWILIO_WHATSAPP_FROM', 'whatsapp:+14155238886')
-        if twilio_sid and twilio_token and twilio_sid != 'your_sid':
+        if twilio_sid and twilio_token:
             from twilio.rest import Client
             Client(twilio_sid, twilio_token).messages.create(
                 body=response_text, from_=twilio_from, to=from_number)
@@ -449,3 +416,6 @@ def whatsapp_webhook():
 
 if __name__ == '__main__':
     app.run(debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return render_template("429.html"), 429
