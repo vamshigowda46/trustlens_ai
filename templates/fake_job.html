@@ -1,98 +1,137 @@
 {% extends "base.html" %}
 {% block title %}Fake Job Detector – TrustLens AI{% endblock %}
-
 {% block body %}
 {% include "sidebar.html" %}
 
 <div class="scan-layout">
-  <div class="mb-4">
-    <div class="d-flex align-items-center gap-3 mb-2">
-      <div class="feature-icon icon-red" style="margin:0;width:44px;height:44px;font-size:1.2rem;">
-        <i class="bi bi-briefcase-fill"></i>
-      </div>
+  <!-- Header -->
+  <div class="page-header mb-4">
+    <div class="d-flex align-items-center gap-3">
+      <div class="feature-icon icon-red" style="margin:0;flex-shrink:0;"><i class="bi bi-briefcase-fill"></i></div>
       <div>
-        <h4 style="font-weight:700;margin:0;">Fake Job Detector</h4>
-        <p style="color:var(--text-muted);font-size:.85rem;margin:0;">AI-powered analysis with explainable red flag detection</p>
+        <h4 class="page-title">Fake Job Detector</h4>
+        <p class="page-sub">AI + Google verification to detect fraudulent job postings</p>
       </div>
     </div>
   </div>
 
-  <div class="row g-4">
-    <div class="col-lg-6">
+  <div class="row g-3">
+    <!-- Input Panel -->
+    <div class="col-lg-5">
       <div class="glass-card">
-        <h6 style="font-weight:700;margin-bottom:20px;color:var(--text-muted);font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;">
-          <i class="bi bi-input-cursor-text me-2" style="color:var(--neon-blue);"></i>Job Details
-        </h6>
+        <div class="card-section-label"><i class="bi bi-pencil-square me-2" style="color:var(--neon-blue);"></i>Job Details</div>
+
         <form id="jobForm">
           <div class="mb-3">
-            <label class="form-label">Job Title *</label>
-            <input type="text" class="form-control" id="jobTitle" placeholder="e.g. Data Entry Operator" required />
+            <label class="form-label">Job Title <span style="color:var(--neon-red);">*</span></label>
+            <input type="text" class="form-control" id="jobTitle" placeholder="e.g. Data Entry Operator" required>
           </div>
           <div class="mb-3">
-            <label class="form-label">Company Name *</label>
-            <input type="text" class="form-control" id="jobCompany" placeholder="e.g. TechCorp Pvt Ltd" required />
+            <label class="form-label">Company Name <span style="color:var(--neon-red);">*</span></label>
+            <div class="input-group">
+              <input type="text" class="form-control" id="jobCompany" placeholder="e.g. TechCorp Pvt Ltd" required>
+              <span class="input-group-text" style="background:rgba(0,212,255,0.08);border:1px solid var(--border);color:var(--text-muted);font-size:.75rem;">
+                <i class="bi bi-google me-1"></i>Verified
+              </span>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">Offered Salary</label>
-            <input type="text" class="form-control" id="jobSalary" placeholder="e.g. 50000/month or 5 LPA" />
+            <input type="text" class="form-control" id="jobSalary" placeholder="e.g. ₹50,000/month or 5 LPA">
           </div>
-          <div class="mb-4">
-            <label class="form-label">Job Description / Message *</label>
-            <textarea class="form-control" id="jobDesc" rows="5"
-                      placeholder="Paste the full job description or WhatsApp message here..." required></textarea>
+          <div class="mb-3">
+            <label class="form-label">Job Description <span style="color:var(--neon-red);">*</span></label>
+            <textarea class="form-control" id="jobDesc" rows="4" placeholder="Paste the full job description or WhatsApp message..." required></textarea>
           </div>
-          <button type="submit" class="btn-neon btn w-100">
+          <button type="submit" class="btn-neon btn w-100" id="analyzeBtn">
             <i class="bi bi-cpu me-2"></i>Analyze Job Posting
           </button>
         </form>
 
+        <!-- Samples -->
         <div class="mt-3">
-          <small style="color:var(--text-muted);">Try a sample:</small>
+          <div class="sample-label">Try a sample:</div>
           <div class="d-flex gap-2 mt-2 flex-wrap">
-            <button class="btn btn-sm" style="background:rgba(255,51,102,0.1);color:var(--neon-red);border:1px solid rgba(255,51,102,.2);border-radius:8px;font-size:.78rem;"
-                    onclick="fillSample('fake')">⚠ Fake Job Sample</button>
-            <button class="btn btn-sm" style="background:rgba(0,255,136,0.1);color:var(--neon-green);border:1px solid rgba(0,255,136,.2);border-radius:8px;font-size:.78rem;"
-                    onclick="fillSample('real')">✓ Real Job Sample</button>
+            <button class="sample-btn sample-danger" onclick="fillSample('fake')">⚠ Fake Job</button>
+            <button class="sample-btn sample-safe" onclick="fillSample('real')">✓ Real Job</button>
           </div>
         </div>
       </div>
 
-      <div class="glass-card mt-3" style="padding:20px !important;">
-        <h6 style="font-weight:700;margin-bottom:12px;font-size:.85rem;color:var(--neon-yellow);">
-          <i class="bi bi-lightbulb me-2"></i>Red Flags to Watch
-        </h6>
-        <ul style="color:var(--text-muted);font-size:.82rem;padding-left:16px;margin:0;line-height:2.1;">
-          <li>Asks for registration or processing fee</li>
-          <li>Unrealistically high salary for simple tasks</li>
-          <li>No interview required — instant selection</li>
-          <li>Work from home with guaranteed income</li>
-          <li>Requests Aadhaar/PAN/bank details upfront</li>
-          <li>Contact only via WhatsApp or Telegram</li>
+      <!-- Red Flags Tips -->
+      <div class="glass-card mt-3 tips-card">
+        <div class="tips-title"><i class="bi bi-lightbulb-fill me-2" style="color:var(--neon-yellow);"></i>Red Flags to Watch</div>
+        <ul class="tips-list">
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Asks for registration or processing fee</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Unrealistically high salary for simple tasks</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>No interview — instant selection</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Contact only via WhatsApp/Telegram</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Requests Aadhaar/PAN/bank details upfront</li>
         </ul>
       </div>
     </div>
 
-    <div class="col-lg-6">
-      <div class="scan-loader glass-card" id="scanLoader">
+    <!-- Result Panel -->
+    <div class="col-lg-7">
+      <!-- Default state -->
+      <div class="glass-card empty-state" id="defaultState">
+        <i class="bi bi-briefcase empty-icon"></i>
+        <h6 class="empty-title">Submit a job posting to analyze</h6>
+        <p class="empty-sub">AI + Google will verify the company and detect fraud patterns.</p>
+      </div>
+
+      <!-- Loader -->
+      <div class="glass-card scan-loader" id="scanLoader">
         <div class="spinner-neon"></div>
-        <p style="color:var(--text-muted);">Analyzing job posting with AI...</p>
-        <small style="color:var(--text-muted);font-size:.8rem;">Running NLP + TF-IDF + Red Flag Analysis</small>
+        <p style="color:var(--text-muted);margin:12px 0 4px;">Analyzing with AI + Google...</p>
+        <small style="color:var(--text-muted);font-size:.78rem;">Verifying company · Checking fraud patterns</small>
       </div>
 
-      <div class="glass-card text-center" id="defaultState" style="padding:60px 28px !important;">
-        <i class="bi bi-briefcase" style="font-size:3.5rem;color:var(--text-muted);display:block;margin-bottom:16px;"></i>
-        <h6 style="color:var(--text-muted);font-weight:600;">Submit a job posting to analyze</h6>
-        <p style="color:var(--text-muted);font-size:.85rem;">AI will check for fraud patterns, suspicious keywords, and red flags.</p>
-      </div>
+      <!-- Result -->
+      <div id="resultOutput" style="display:none;">
+        <!-- Main result card -->
+        <div class="glass-card result-main-card" id="resultMainCard">
+          <div class="result-top">
+            <div class="result-icon-wrap" id="resultIconWrap">
+              <i class="bi bi-shield-check" id="resultIcon"></i>
+            </div>
+            <div class="result-info">
+              <div class="result-badge-wrap">
+                <span class="result-badge badge-safe" id="resultBadge">SAFE</span>
+              </div>
+              <div class="result-title" id="resultText">—</div>
+              <p class="result-explanation" id="explanationText">—</p>
+            </div>
+          </div>
 
-      {% include "result_panel.html" %}
+          <!-- Trust score bar -->
+          <div class="trust-score-section mt-3">
+            <div class="d-flex justify-content-between mb-1">
+              <span style="font-size:.8rem;color:var(--text-muted);">Trust Score</span>
+              <strong id="trustNum" style="font-size:.9rem;">0</strong>
+            </div>
+            <div class="trust-bar-wrap"><div class="trust-bar" id="trustBar" style="width:0%;"></div></div>
+            <div id="riskLabel" style="font-size:.75rem;margin-top:4px;font-weight:600;"></div>
+          </div>
+        </div>
 
-      <!-- Red Flags Panel -->
-      <div id="redFlagsCard" style="display:none;" class="glass-card mt-3">
-        <h6 style="font-weight:700;margin-bottom:14px;font-size:.85rem;color:var(--neon-red);">
-          <i class="bi bi-exclamation-octagon me-2"></i>Explainable AI – Red Flags Detected
-        </h6>
-        <div id="redFlagsList"></div>
+        <!-- Google Verification Card -->
+        <div class="glass-card mt-3" id="googleCard">
+          <div class="card-section-label"><i class="bi bi-google me-2" style="color:#4285f4;"></i>Google Verification</div>
+          <div id="googleResult"></div>
+        </div>
+
+        <!-- Red Flags -->
+        <div class="glass-card mt-3" id="redFlagsCard" style="display:none;">
+          <div class="card-section-label" style="color:var(--neon-red);"><i class="bi bi-exclamation-octagon me-2"></i>Red Flags Detected</div>
+          <div id="redFlagsList"></div>
+        </div>
+
+        <!-- Keywords -->
+        <div class="glass-card mt-3" id="keywordsCard" style="display:none;">
+          <div class="card-section-label"><i class="bi bi-tags me-2" style="color:var(--neon-yellow);"></i>Suspicious Keywords</div>
+          <div id="keywordsList"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -103,58 +142,114 @@
 const samples = {
   fake: {
     title: 'Data Entry Operator – Work From Home',
-    company: 'Global Earn Solutions',
-    salary: '80,000/month – No Experience Needed',
-    desc: 'Urgent hiring! Work from home and earn 80,000 per month. No experience needed. Just pay a small registration fee of ₹500 to activate your account. Guaranteed income. Send your Aadhaar card and bank details on WhatsApp now. Limited seats available. Act now!'
+    company: 'Global Earn Solutions Pvt Ltd',
+    salary: '₹80,000/month – No Experience Needed',
+    desc: 'Urgent hiring! Work from home and earn 80,000 per month. No experience needed. Pay a small registration fee of ₹500 to activate your account. Guaranteed income. Send your Aadhaar card and bank details on WhatsApp now. Limited seats. Act now!'
   },
   real: {
     title: 'Software Engineer – Python/Django',
     company: 'Infosys Limited',
-    salary: '8-12 LPA',
-    desc: 'We are looking for a skilled Python developer with 2+ years of experience in Django and REST APIs. The candidate should have strong knowledge of MySQL, Git, and agile methodologies. Apply through our official careers portal. No fee required.'
+    salary: '8–12 LPA',
+    desc: 'We are looking for a skilled Python developer with 2+ years of experience in Django and REST APIs. Strong knowledge of MySQL, Git, and agile methodologies required. Apply through our official careers portal. No fee required.'
   }
 };
 
 function fillSample(type) {
   const s = samples[type];
-  document.getElementById('jobTitle').value = s.title;
+  document.getElementById('jobTitle').value   = s.title;
   document.getElementById('jobCompany').value = s.company;
-  document.getElementById('jobSalary').value = s.salary;
-  document.getElementById('jobDesc').value = s.desc;
+  document.getElementById('jobSalary').value  = s.salary;
+  document.getElementById('jobDesc').value    = s.desc;
 }
 
 document.getElementById('jobForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  document.getElementById('redFlagsCard').style.display = 'none';
-  showLoader('scanLoader', 'defaultState');
+  document.getElementById('defaultState').style.display  = 'none';
+  document.getElementById('resultOutput').style.display  = 'none';
+  document.getElementById('scanLoader').style.display    = 'block';
+
   try {
     const data = await postScan('/api/scan/job', {
-      title: document.getElementById('jobTitle').value,
-      company: document.getElementById('jobCompany').value,
-      salary: document.getElementById('jobSalary').value,
+      title:       document.getElementById('jobTitle').value,
+      company:     document.getElementById('jobCompany').value,
+      salary:      document.getElementById('jobSalary').value,
       description: document.getElementById('jobDesc').value
     });
-    hideLoader('scanLoader');
-    renderResult(data);
-    renderRedFlags(data.red_flags || []);
+    document.getElementById('scanLoader').style.display = 'none';
+    renderJobResult(data);
   } catch(err) {
-    hideLoader('scanLoader');
-    showDefaultState('defaultState', 'Scan failed. Please try again.');
+    document.getElementById('scanLoader').style.display = 'none';
+    document.getElementById('defaultState').style.display = 'block';
   }
 });
 
-function renderRedFlags(flags) {
-  if (!flags || flags.length === 0) return;
-  const list = document.getElementById('redFlagsList');
-  list.innerHTML = flags.map(f => `
-    <div class="red-flag-card severity-${f.severity}">
-      <i class="bi ${f.icon} red-flag-icon" style="color:${f.color};"></i>
-      <div>
-        <span class="red-flag-label">${f.label}</span>
-        <span class="red-flag-severity sev-${f.severity}">${f.severity}</span>
+function renderJobResult(data) {
+  const isGood = data.result === 'SAFE';
+  const color  = isGood ? 'var(--neon-green)' : 'var(--neon-red)';
+  const icon   = isGood ? 'bi-shield-check' : 'bi-shield-x';
+
+  // Main card
+  document.getElementById('resultIcon').className = `bi ${icon}`;
+  document.getElementById('resultIcon').style.color = color;
+  document.getElementById('resultIconWrap').style.background = isGood ? 'rgba(0,255,136,0.1)' : 'rgba(255,51,102,0.1)';
+
+  const badge = document.getElementById('resultBadge');
+  badge.textContent = data.result;
+  badge.className = `result-badge ${isGood ? 'badge-safe' : 'badge-danger'}`;
+
+  const titles = { 'FAKE': '🚨 Fake Job Detected', 'SAFE': '✅ Job Appears Legitimate' };
+  document.getElementById('resultText').textContent = titles[data.result] || data.result;
+  document.getElementById('explanationText').textContent = data.explanation || '';
+
+  // Trust bar
+  document.getElementById('trustNum').textContent = data.trust_score;
+  document.getElementById('trustNum').style.color = color;
+  const bar = document.getElementById('trustBar');
+  bar.style.background = color;
+  setTimeout(() => { bar.style.width = data.trust_score + '%'; }, 100);
+  const riskEl = document.getElementById('riskLabel');
+  riskEl.textContent = data.risk_level || '';
+  riskEl.style.color = color;
+
+  // Google verification
+  const gEl = document.getElementById('googleResult');
+  if (data.company_found !== undefined) {
+    const gColor = data.company_found ? 'var(--neon-green)' : 'var(--neon-red)';
+    const gIcon  = data.company_found ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+    const gClass = data.company_found ? 'check-pass' : 'check-fail';
+    gEl.innerHTML = `
+      <div class="report-check-item ${gClass} mb-2">
+        <i class="bi ${gIcon}"></i>
+        <span>${data.google_info || ''}</span>
       </div>
-    </div>`).join('');
-  document.getElementById('redFlagsCard').style.display = 'block';
+      ${data.google_url ? `<a href="${data.google_url}" target="_blank" class="google-link"><i class="bi bi-box-arrow-up-right me-1"></i>Search on Google</a>` : ''}`;
+  } else {
+    gEl.innerHTML = `<div class="report-check-item check-warn"><i class="bi bi-info-circle"></i> Google verification unavailable</div>`;
+  }
+
+  // Red flags
+  if (data.red_flags && data.red_flags.length) {
+    document.getElementById('redFlagsList').innerHTML = data.red_flags.map(f => `
+      <div class="red-flag-card severity-${f.severity}">
+        <i class="bi ${f.icon} red-flag-icon" style="color:${f.color};"></i>
+        <div><span class="red-flag-label">${f.label}</span>
+        <span class="red-flag-severity sev-${f.severity} ms-2">${f.severity}</span></div>
+      </div>`).join('');
+    document.getElementById('redFlagsCard').style.display = 'block';
+  } else {
+    document.getElementById('redFlagsCard').style.display = 'none';
+  }
+
+  // Keywords
+  if (data.keywords && data.keywords.length) {
+    document.getElementById('keywordsList').innerHTML = data.keywords.map(k =>
+      `<span class="keyword-tag"><i class="bi bi-exclamation-circle me-1"></i>${k}</span>`).join('');
+    document.getElementById('keywordsCard').style.display = 'block';
+  } else {
+    document.getElementById('keywordsCard').style.display = 'none';
+  }
+
+  document.getElementById('resultOutput').style.display = 'block';
 }
 </script>
 {% endblock %}

@@ -1,145 +1,221 @@
 {% extends "base.html" %}
 {% block title %}Loan App Detector – TrustLens AI{% endblock %}
-
 {% block body %}
 {% include "sidebar.html" %}
 
 <div class="scan-layout">
-  <div class="mb-4">
-    <div class="d-flex align-items-center gap-3 mb-2">
-      <div class="feature-icon icon-orange" style="margin:0;width:44px;height:44px;font-size:1.2rem;">
-        <i class="bi bi-currency-rupee"></i>
-      </div>
+  <div class="page-header mb-4">
+    <div class="d-flex align-items-center gap-3">
+      <div class="feature-icon icon-orange" style="margin:0;flex-shrink:0;"><i class="bi bi-currency-rupee"></i></div>
       <div>
-        <h4 style="font-weight:700;margin:0;">Loan App Detector</h4>
-        <p style="color:var(--text-muted);font-size:.85rem;margin:0;">Identify predatory and fraudulent instant loan applications</p>
+        <h4 class="page-title">Loan App Detector</h4>
+        <p class="page-sub">Google Play + RBI verification for predatory loan apps</p>
       </div>
     </div>
   </div>
 
-  <div class="row g-4">
-    <div class="col-lg-6">
+  <div class="row g-3">
+    <div class="col-lg-5">
       <div class="glass-card">
-        <h6 style="font-weight:700;margin-bottom:20px;color:var(--text-muted);font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;">
-          <i class="bi bi-phone me-2" style="color:var(--neon-blue);"></i>App Details
-        </h6>
-
+        <div class="card-section-label"><i class="bi bi-phone me-2" style="color:var(--neon-blue);"></i>App Details</div>
         <form id="loanForm">
           <div class="mb-3">
-            <label class="form-label">App Name *</label>
-            <input type="text" class="form-control" id="loanApp" placeholder="e.g. QuickCash, InstantLoan Pro" required />
+            <label class="form-label">App Name <span style="color:var(--neon-red);">*</span></label>
+            <div class="input-group">
+              <input type="text" class="form-control" id="loanApp" placeholder="e.g. QuickCash, Bajaj Finserv" required>
+              <span class="input-group-text" style="background:rgba(0,212,255,0.08);border:1px solid var(--border);color:var(--text-muted);font-size:.75rem;">
+                <i class="bi bi-google me-1"></i>Checked
+              </span>
+            </div>
           </div>
-
           <div class="mb-3">
             <label class="form-label">Annual Interest Rate (%)</label>
-            <input type="number" class="form-control" id="loanRate" placeholder="e.g. 36 (enter 0 if unknown)" min="0" max="1000" value="0" />
-            <small style="color:var(--text-muted);font-size:.75rem;margin-top:4px;display:block;">
-              RBI cap for NBFCs: ~36% per annum. Higher = suspicious.
-            </small>
+            <input type="number" class="form-control" id="loanRate" placeholder="e.g. 36" min="0" max="1000" value="0">
+            <small style="color:var(--text-muted);font-size:.75rem;margin-top:4px;display:block;">RBI cap for NBFCs: ~36% p.a. Higher = suspicious.</small>
           </div>
-
-          <div class="mb-4">
-            <label class="form-label">App Permissions Requested</label>
-            <div class="row g-2 mt-1">
+          <div class="mb-3">
+            <label class="form-label">Permissions Requested</label>
+            <div class="row g-2">
               {% for perm in ['Contacts','SMS','Camera','Location','Storage','Call Logs','Microphone','Device Admin'] %}
               <div class="col-6">
-                <div class="form-check" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;">
-                  <input class="form-check-input" type="checkbox" value="{{ perm.lower() }}" id="perm{{ loop.index }}"
-                         style="border-color:var(--border);" />
-                  <label class="form-check-label" for="perm{{ loop.index }}"
-                         style="font-size:.85rem;color:var(--text-muted);cursor:pointer;">
-                    {{ perm }}
-                  </label>
-                </div>
+                <label class="perm-label">
+                  <input type="checkbox" value="{{ perm.lower() }}" class="perm-cb" style="accent-color:var(--neon-blue);">
+                  <span>{{ perm }}</span>
+                </label>
               </div>
               {% endfor %}
             </div>
           </div>
-
           <button type="submit" class="btn-neon btn w-100">
             <i class="bi bi-cpu me-2"></i>Analyze Loan App
           </button>
         </form>
-
         <div class="mt-3">
-          <small style="color:var(--text-muted);">Try a sample:</small>
+          <div class="sample-label">Try a sample:</div>
           <div class="d-flex gap-2 mt-2">
-            <button class="btn btn-sm" style="background:rgba(255,51,102,0.1);color:var(--neon-red);border:1px solid rgba(255,51,102,.2);border-radius:8px;font-size:.78rem;"
-                    onclick="fillLoanSample('scam')">⚠ Scam App Sample</button>
-            <button class="btn btn-sm" style="background:rgba(0,255,136,0.1);color:var(--neon-green);border:1px solid rgba(0,255,136,.2);border-radius:8px;font-size:.78rem;"
-                    onclick="fillLoanSample('legit')">✓ Legit App Sample</button>
+            <button class="sample-btn sample-danger" onclick="fillLoan('scam')">⚠ Scam App</button>
+            <button class="sample-btn sample-safe" onclick="fillLoan('legit')">✓ Legit App</button>
           </div>
         </div>
       </div>
 
-      <div class="glass-card mt-3" style="padding:20px !important;">
-        <h6 style="font-weight:700;margin-bottom:12px;font-size:.85rem;color:var(--neon-red);">
-          <i class="bi bi-exclamation-triangle me-2"></i>Danger Signs
-        </h6>
-        <ul style="color:var(--text-muted);font-size:.82rem;padding-left:16px;margin:0;line-height:2;">
-          <li>Requests contacts, SMS, or call log access</li>
-          <li>Interest rate above 36% per annum</li>
-          <li>Promises instant approval with no documents</li>
-          <li>Not listed on RBI/Google Play verified list</li>
-          <li>Asks for advance/processing fee before loan</li>
+      <div class="glass-card mt-3 tips-card">
+        <div class="tips-title"><i class="bi bi-exclamation-triangle-fill me-2" style="color:var(--neon-red);"></i>Danger Signs</div>
+        <ul class="tips-list">
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Not on Google Play Store</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Interest rate above 36% per annum</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Requests SMS, Contacts, Call Logs</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>No RBI/NBFC registration found</li>
+          <li><i class="bi bi-x-circle-fill" style="color:var(--neon-red);"></i>Advance fee before loan disbursement</li>
         </ul>
       </div>
     </div>
 
-    <div class="col-lg-6">
-      <div class="scan-loader glass-card" id="scanLoader">
+    <div class="col-lg-7">
+      <div class="glass-card empty-state" id="defaultState">
+        <i class="bi bi-phone empty-icon"></i>
+        <h6 class="empty-title">Enter app details to analyze</h6>
+        <p class="empty-sub">We'll check Google Play Store, RBI registration, and permissions.</p>
+      </div>
+
+      <div class="glass-card scan-loader" id="scanLoader">
         <div class="spinner-neon"></div>
-        <p style="color:var(--text-muted);">Analyzing loan app...</p>
+        <p style="color:var(--text-muted);margin:12px 0 4px;">Checking Google Play + RBI...</p>
+        <small style="color:var(--text-muted);font-size:.78rem;">Verifying app · Checking permissions · RBI lookup</small>
       </div>
 
-      <div class="glass-card text-center" id="defaultState" style="padding:60px 28px !important;">
-        <i class="bi bi-phone" style="font-size:3.5rem;color:var(--text-muted);display:block;margin-bottom:16px;"></i>
-        <h6 style="color:var(--text-muted);font-weight:600;">Enter app details to analyze</h6>
-        <p style="color:var(--text-muted);font-size:.85rem;">We'll check permissions, interest rates, and known scam patterns.</p>
-      </div>
+      <div id="resultOutput" style="display:none;">
+        <div class="glass-card result-main-card">
+          <div class="result-top">
+            <div class="result-icon-wrap" id="resultIconWrap">
+              <i class="bi bi-shield-check" id="resultIcon"></i>
+            </div>
+            <div class="result-info">
+              <div class="result-badge-wrap">
+                <span class="result-badge badge-safe" id="resultBadge">SAFE</span>
+              </div>
+              <div class="result-title" id="resultText">—</div>
+              <p class="result-explanation" id="explanationText">—</p>
+            </div>
+          </div>
+          <div class="trust-score-section mt-3">
+            <div class="d-flex justify-content-between mb-1">
+              <span style="font-size:.8rem;color:var(--text-muted);">Trust Score</span>
+              <strong id="trustNum" style="font-size:.9rem;">0</strong>
+            </div>
+            <div class="trust-bar-wrap"><div class="trust-bar" id="trustBar" style="width:0%;"></div></div>
+            <div id="riskLabel" style="font-size:.75rem;margin-top:4px;font-weight:600;"></div>
+          </div>
+        </div>
 
-      {% include "result_panel.html" %}
+        <!-- Google + RBI verification -->
+        <div class="glass-card mt-3">
+          <div class="card-section-label"><i class="bi bi-google me-2" style="color:#4285f4;"></i>Google Play + RBI Verification</div>
+          <div id="googleResult"></div>
+        </div>
+
+        <!-- Red flags -->
+        <div class="glass-card mt-3" id="redFlagsCard" style="display:none;">
+          <div class="card-section-label" style="color:var(--neon-red);"><i class="bi bi-exclamation-octagon me-2"></i>Issues Found</div>
+          <div id="redFlagsList"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
 {% block extra_js %}
 <script>
-function fillLoanSample(type) {
+function fillLoan(type) {
   if (type === 'scam') {
-    document.getElementById('loanApp').value = 'QuickRupee – Instant Loan';
+    document.getElementById('loanApp').value  = 'QuickRupee Instant Loan';
     document.getElementById('loanRate').value = '120';
-    ['contacts','sms','call logs','location','storage'].forEach(p => {
-      document.querySelectorAll('input[type=checkbox]').forEach(cb => {
-        if (cb.value === p) cb.checked = true;
-      });
-    });
+    document.querySelectorAll('.perm-cb').forEach(c => c.checked = true);
   } else {
-    document.getElementById('loanApp').value = 'Bajaj Finserv EMI';
+    document.getElementById('loanApp').value  = 'Bajaj Finserv EMI';
     document.getElementById('loanRate').value = '18';
-    document.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
-    document.querySelector('input[value="storage"]').checked = true;
+    document.querySelectorAll('.perm-cb').forEach(c => c.checked = false);
+    document.querySelector('.perm-cb[value="storage"]').checked = true;
   }
 }
 
 document.getElementById('loanForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  const checkedPerms = [...document.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value).join(', ');
-  const payload = {
-    app_name: document.getElementById('loanApp').value,
-    permissions: checkedPerms,
-    interest_rate: document.getElementById('loanRate').value
-  };
-  showLoader('scanLoader', 'defaultState');
+  document.getElementById('defaultState').style.display = 'none';
+  document.getElementById('resultOutput').style.display = 'none';
+  document.getElementById('scanLoader').style.display   = 'block';
+
+  const perms = [...document.querySelectorAll('.perm-cb:checked')].map(c => c.value).join(', ');
   try {
-    const data = await postScan('/api/scan/loan', payload);
-    hideLoader('scanLoader');
-    renderResult(data);
+    const data = await postScan('/api/scan/loan', {
+      app_name:      document.getElementById('loanApp').value,
+      permissions:   perms,
+      interest_rate: document.getElementById('loanRate').value
+    });
+    document.getElementById('scanLoader').style.display = 'none';
+    renderLoanResult(data);
   } catch(err) {
-    hideLoader('scanLoader');
-    showDefaultState('defaultState', 'Scan failed. Please try again.');
+    document.getElementById('scanLoader').style.display   = 'none';
+    document.getElementById('defaultState').style.display = 'block';
   }
 });
+
+function renderLoanResult(data) {
+  const isGood = data.result === 'SAFE';
+  const color  = isGood ? 'var(--neon-green)' : 'var(--neon-red)';
+  const icon   = isGood ? 'bi-shield-check' : 'bi-shield-x';
+
+  document.getElementById('resultIcon').className = `bi ${icon}`;
+  document.getElementById('resultIcon').style.color = color;
+  document.getElementById('resultIconWrap').style.background = isGood ? 'rgba(0,255,136,0.1)' : 'rgba(255,51,102,0.1)';
+
+  const badge = document.getElementById('resultBadge');
+  badge.textContent = data.result;
+  badge.className = `result-badge ${isGood ? 'badge-safe' : 'badge-danger'}`;
+
+  const titles = { 'FRAUDULENT': '🚨 Fraudulent Loan App', 'SAFE': '✅ App Appears Legitimate' };
+  document.getElementById('resultText').textContent = titles[data.result] || data.result;
+  document.getElementById('explanationText').textContent = data.explanation || '';
+
+  document.getElementById('trustNum').textContent = data.trust_score;
+  document.getElementById('trustNum').style.color = color;
+  const bar = document.getElementById('trustBar');
+  bar.style.background = color;
+  setTimeout(() => { bar.style.width = data.trust_score + '%'; }, 100);
+  const riskEl = document.getElementById('riskLabel');
+  riskEl.textContent = data.risk_level || '';
+  riskEl.style.color = color;
+
+  // Google + RBI result
+  const gEl = document.getElementById('googleResult');
+  const playClass = data.on_play_store ? 'check-pass' : 'check-fail';
+  const playIcon  = data.on_play_store ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+  const rbiClass  = data.rbi_mention   ? 'check-pass' : 'check-warn';
+  const rbiIcon   = data.rbi_mention   ? 'bi-check-circle-fill' : 'bi-info-circle';
+  gEl.innerHTML = `
+    <div class="report-check-item ${playClass} mb-2">
+      <i class="bi ${playIcon}"></i>
+      <span>${data.on_play_store ? '✓ Found on Google Play Store' : '✗ NOT found on Google Play Store'}</span>
+    </div>
+    <div class="report-check-item ${rbiClass} mb-2">
+      <i class="bi ${rbiIcon}"></i>
+      <span>${data.rbi_mention ? '✓ RBI/NBFC mention found on Google' : '⚠ No RBI/NBFC registration found'}</span>
+    </div>
+    ${data.google_url ? `<a href="${data.google_url}" target="_blank" class="google-link"><i class="bi bi-box-arrow-up-right me-1"></i>View on Play Store</a>` : ''}`;
+
+  // Red flags
+  if (data.red_flags && data.red_flags.length) {
+    document.getElementById('redFlagsList').innerHTML = data.red_flags.map(f => `
+      <div class="red-flag-card severity-${f.severity}">
+        <i class="bi ${f.icon} red-flag-icon" style="color:${f.color};"></i>
+        <div><span class="red-flag-label">${f.label}</span>
+        <span class="red-flag-severity sev-${f.severity} ms-2">${f.severity}</span></div>
+      </div>`).join('');
+    document.getElementById('redFlagsCard').style.display = 'block';
+  }
+
+  document.getElementById('resultOutput').style.display = 'block';
+}
 </script>
 {% endblock %}
 {% endblock %}

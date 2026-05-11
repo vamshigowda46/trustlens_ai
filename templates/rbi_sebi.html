@@ -134,7 +134,7 @@
               <h5 id="matchedName" style="font-weight:800;font-size:1.3rem;margin:0;"></h5>
               <p id="resultExplanation" style="color:var(--text-muted);font-size:.85rem;margin:6px 0 0;line-height:1.6;"></p>
             </div>
-            <!-- Confidence ring -->
+            <!-- Score ring -->
             <div style="text-align:center;flex-shrink:0;">
               <div style="position:relative;width:100px;height:100px;margin:0 auto;">
                 <svg width="100" height="100" viewBox="0 0 100 100" style="transform:rotate(-90deg);">
@@ -144,8 +144,8 @@
                           style="transition:stroke-dashoffset 1.2s ease;stroke-dashoffset:251.2;"/>
                 </svg>
                 <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;">
-                  <div id="confNum" style="font-size:1.4rem;font-weight:800;">0%</div>
-                  <div style="font-size:.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Confidence</div>
+                  <div id="confNum" style="font-size:1.4rem;font-weight:800;">0</div>
+                  <div id="ringLabel" style="font-size:.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Trust Score</div>
                 </div>
               </div>
             </div>
@@ -182,6 +182,12 @@
             <li>Report suspicious apps using our <strong style="color:var(--neon-green);">Report Fraud</strong> feature</li>
           </ul>
         </div>
+
+        <!-- Google Verification Card -->
+        <div class="glass-card mt-3" id="googleVerifyCard" style="display:none;">
+          <div class="card-section-label"><i class="bi bi-wikipedia me-2" style="color:#a855f7;"></i>Wikipedia + Regulatory Check</div>
+          <div id="googleVerifyResult"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -208,7 +214,6 @@ document.getElementById('verifyForm').addEventListener('submit', async function(
   const query = document.getElementById('verifyQuery').value.trim();
   if (!query) return;
 
-  // Show loader
   document.getElementById('scanLoader').style.display = 'block';
   document.getElementById('defaultState').style.display = 'none';
   document.getElementById('verifyResult').style.display = 'none';
@@ -216,7 +221,7 @@ document.getElementById('verifyForm').addEventListener('submit', async function(
   try {
     const data = await postScan('/api/scan/verify', { query });
     document.getElementById('scanLoader').style.display = 'none';
-    renderVerifyResult(data);
+    renderVerifyResult(data, query);
   } catch(err) {
     document.getElementById('scanLoader').style.display = 'none';
     document.getElementById('defaultState').style.display = 'block';
@@ -224,7 +229,7 @@ document.getElementById('verifyForm').addEventListener('submit', async function(
   }
 });
 
-function renderVerifyResult(d) {
+function renderVerifyResult(d, query) {
   const cfg = RESULT_CONFIG[d.result] || RESULT_CONFIG['NOT VERIFIED'];
   const regColor = REGULATOR_COLORS[d.regulator] || 'var(--neon-blue)';
 
@@ -236,34 +241,58 @@ function renderVerifyResult(d) {
   document.getElementById('matchedName').textContent = d.matched_name || query;
   document.getElementById('resultExplanation').textContent = d.explanation;
 
-  // Confidence ring
-  const conf = d.confidence || 0;
-  const confColor = conf >= 85 ? '#00ff88' : conf >= 65 ? '#ffd700' : '#ff3366';
+  // Confidence ring — use trust_score as the primary indicator
+  const score     = d.trust_score || 0;
+  const conf      = d.confidence  || 0;
+  const scoreColor = score >= 80 ? '#00ff88' : score >= 50 ? '#ffd700' : '#ff3366';
+
   const circle = document.getElementById('confCircle');
-  circle.style.stroke = confColor;
-  const offset = 251.2 - (conf / 100) * 251.2;
+  circle.style.stroke = scoreColor;
+  const offset = 251.2 - (score / 100) * 251.2;
   setTimeout(() => { circle.style.strokeDashoffset = offset; }, 100);
 
-  // Counter
+  // Animate counter to trust_score
   let c = 0;
   const confEl = document.getElementById('confNum');
-  confEl.style.color = confColor;
+  confEl.style.color = scoreColor;
   const t = setInterval(() => {
-    c = Math.min(c + 3, conf);
-    confEl.textContent = c + '%';
-    if (c >= conf) clearInterval(t);
+    c = Math.min(c + 2, score);
+    confEl.textContent = c;
+    if (c >= score) clearInterval(t);
   }, 20);
+
+  // Update label below ring
+  const ringLabel = document.getElementById('ringLabel');
+  if (ringLabel) {
+    ringLabel.textContent = 'Trust Score';
+  }
 
   // Detail grid
   const grid = document.getElementById('detailGrid');
+  const confColor = conf >= 85 ? '#00ff88' : conf >= 65 ? '#ffd700' : '#ff3366';
   if (d.found && !d.is_clone) {
     const items = [
-      ['Regulator',        d.regulator || '—',   regColor],
-      ['Category',         d.category || '—',    'var(--text-primary)'],
-      ['Registration Type',d.reg_type || '—',    'var(--text-primary)'],
-      ['Official Website', d.website || '—',      'var(--neon-blue)'],
-      ['Match Type',       (d.match_type || '').toUpperCase(), 'var(--neon-yellow)'],
-      ['Confidence',       (d.confidence || 0) + '%', confColor],
+      ['Regulator',        d.regulator || '—',        regColor],
+      ['Category',         d.category  || '—',        'var(--text-primary)'],
+      ['Registration Type',d.reg_type  || '—',        'var(--text-primary)'],
+      ['Official Website', d.website   || '—',        'var(--neon-blue)'],
+      ['Trust Score',      score + ' / 100',          scoreColor],
+      ['Match Confidence', conf > 0 ? conf + '%' : 'Wikipedia', confColor],
+    ];
+    grid.innerHTML = items.map(([label, val, color]) => `
+      <div class="col-6">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">${label}</div>
+          <div style="font-weight:600;font-size:.88rem;color:${color};">${val}</div>
+        </div>
+      </div>`).join('');
+  } else if (!d.found) {
+    // Wikipedia-only result — show what we know
+    const items = [
+      ['Trust Score',   score + ' / 100',                    scoreColor],
+      ['Source',        d.wiki_found ? 'Wikipedia' : 'None', '#a855f7'],
+      ['RBI/NBFC',      d.rbi_mention  ? 'Mentioned' : 'Not found', d.rbi_mention  ? 'var(--neon-green)' : 'var(--text-muted)'],
+      ['SEBI',          d.sebi_mention ? 'Mentioned' : 'Not found', d.sebi_mention ? 'var(--neon-green)' : 'var(--text-muted)'],
     ];
     grid.innerHTML = items.map(([label, val, color]) => `
       <div class="col-6">
@@ -287,6 +316,46 @@ function renderVerifyResult(d) {
 
   // Not found advisory
   document.getElementById('notFoundCard').style.display = (!d.found) ? 'block' : 'none';
+
+  // Google Verification
+  const gCard = document.getElementById('googleVerifyCard');
+  const gEl   = document.getElementById('googleVerifyResult');
+  gCard.style.display = 'block';
+
+  // Wikipedia summary
+  let wikiHtml = '';
+  if (d.wiki_found) {
+    wikiHtml = `
+      <div class="wiki-box mb-3">
+        <div class="wiki-box-title">
+          <i class="bi bi-wikipedia me-2" style="color:#a855f7;"></i>
+          <strong>${d.wiki_title}</strong>
+          ${d.wiki_url ? `<a href="${d.wiki_url}" target="_blank" class="google-link ms-2" style="font-size:.72rem;"><i class="bi bi-box-arrow-up-right"></i> Wikipedia</a>` : ''}
+        </div>
+        <p class="wiki-box-text">${d.wiki_summary}</p>
+      </div>`;
+  } else {
+    wikiHtml = `<div class="report-check-item check-warn mb-2"><i class="bi bi-wikipedia"></i> Not found on Wikipedia</div>`;
+  }
+
+  const rows = [
+    { label: 'Google Play Store',       pass: d.play_store,    neutral: false },
+    { label: 'RBI/NBFC regulation',     pass: d.rbi_mention,   neutral: !d.rbi_mention },
+    { label: 'SEBI regulation',         pass: d.sebi_mention,  neutral: !d.sebi_mention },
+    { label: 'IRDAI regulation',        pass: d.irdai_mention, neutral: !d.irdai_mention },
+  ];
+  const checksHtml = rows.map(r => {
+    const cls  = r.pass ? 'check-pass' : 'check-warn';
+    const icon = r.pass ? 'bi-check-circle-fill' : 'bi-dash-circle';
+    const txt  = r.pass ? `✓ ${r.label} found` : `— ${r.label} not found`;
+    return `<div class="report-check-item ${cls} mb-2"><i class="bi ${icon}"></i><span>${txt}</span></div>`;
+  }).join('');
+
+  const linkHtml = d.search_url
+    ? `<a href="${d.search_url}" target="_blank" class="google-link mt-2"><i class="bi bi-wikipedia me-1"></i>Search Wikipedia</a>`
+    : '';
+
+  gEl.innerHTML = wikiHtml + checksHtml + linkHtml;
 
   // Show result
   document.getElementById('verifyResult').style.display = 'block';

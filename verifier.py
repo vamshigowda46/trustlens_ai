@@ -1,10 +1,107 @@
 """
 TrustLens AI – verifier.py
 Intelligent RBI/SEBI/NBFC platform verification engine.
-Uses: normalize, partial match, alias match, fuzzy match, clone detection.
-No DB dependency — works entirely from the built-in registry.
 """
-import re
+import re, os, logging
+import requests
+
+logger = logging.getLogger(__name__)
+
+# ── Wikipedia + Play Store lookup ────────────────────────────────────────────
+def _wikipedia_lookup(query: str) -> dict:
+    """
+    Fetch Wikipedia summary for any app/company.
+    Returns structured info: description, category, regulator hints, legitimacy.
+    """
+    result = {
+        "wiki_found": False,
+        "wiki_title": "",
+        "wiki_summary": "",
+        "wiki_url": "",
+        "rbi_mention": False,
+        "sebi_mention": False,
+        "irdai_mention": False,
+        "play_store": False,
+        "google_info": "",
+        "search_url": ""
+    }
+    if not query:
+        return result
+
+    try:
+        # Wikipedia REST API — search then fetch summary
+        q = query.strip()
+        search_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={requests.utils.quote(q)}&format=json&srlimit=3"
+        headers = {"User-Agent": "TrustLensAI/1.0 (trustlens-ai; educational)"}
+        sr = requests.get(search_url, headers=headers, timeout=6)
+        if sr.status_code == 200:
+            hits = sr.json().get("query", {}).get("search", [])
+            if hits:
+                # Pick best hit — prefer title that contains query words
+                q_words = set(q.lower().split())
+                best_hit = hits[0]
+                for h in hits:
+                    title_words = set(h["title"].lower().split())
+                    if q_words & title_words:
+                        best_hit = h
+                        break
+
+                title = best_hit["title"]
+                # Fetch full summary
+                summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(title)}"
+                pr = requests.get(summary_url, headers=headers, timeout=6)
+                if pr.status_code == 200:
+                    data = pr.json()
+                    summary = data.get("extract", "")
+                    result["wiki_found"] = True
+                    result["wiki_title"] = data.get("title", title)
+                    result["wiki_summary"] = summary[:600]
+                    result["wiki_url"] = data.get("content_urls", {}).get("desktop", {}).get("page", "")
+
+                    # Check regulatory mentions in summary
+                    s_lower = summary.lower()
+                    result["rbi_mention"]   = "reserve bank" in s_lower or "rbi" in s_lower or "nbfc" in s_lower
+                    result["sebi_mention"]  = "sebi" in s_lower or "securities and exchange board" in s_lower or "stock broker" in s_lower or "stock exchange" in s_lower
+                    result["irdai_mention"] = "irdai" in s_lower or "insurance regulatory" in s_lower
+
+        # Play Store check
+        ps_q = query.strip().replace(' ', '+')
+        r1 = requests.get(
+            f"https://play.google.com/store/search?q={ps_q}&c=apps",
+            headers={"User-Agent": "Mozilla/5.0 (Android 13; Mobile) AppleWebKit/537.36"},
+            timeout=6)
+        if r1.status_code == 200:
+            words = [w for w in query.lower().split() if len(w) > 3]
+            if words and sum(1 for w in words if w in r1.text.lower()) >= max(1, len(words) * 0.5):
+                result["play_store"] = True
+
+        result["search_url"] = f"https://en.wikipedia.org/w/index.php?search={requests.utils.quote(q)}"
+
+        # Build info string
+        parts = []
+        if result["wiki_found"]:
+            parts.append(f"Wikipedia: {result['wiki_title']}")
+        if result["play_store"]:
+            parts.append("Found on Google Play Store")
+        if result["rbi_mention"]:
+            parts.append("RBI/NBFC mentioned")
+        if result["sebi_mention"]:
+            parts.append("SEBI mentioned")
+        if result["irdai_mention"]:
+            parts.append("IRDAI mentioned")
+        if not parts:
+            parts.append("No Wikipedia or regulatory evidence found")
+        result["google_info"] = " · ".join(parts)
+
+    except Exception as e:
+        logger.warning("Wikipedia lookup error: %s", e)
+        result["google_info"] = "Wikipedia lookup unavailable"
+    return result
+
+
+def _google_verify(query: str, regulator: str = None, website: str = None) -> dict:
+    """Wrapper — uses Wikipedia lookup for all queries."""
+    return _wikipedia_lookup(query)
 
 # ── Normalize helper ───────────────────────────────────────────────────────────
 def normalize_name(text):
@@ -222,8 +319,17 @@ REGISTRY = [
     ("Paytm Money",
      ["paytm money", "paytmmoney"],
      "Investment Platform", "SEBI", "SEBI Registered Broker", "paytmmoney.com"),
+    ("CoinDCX",
+     ["coindcx", "coin dcx", "coindcx app", "coindcx crypto"],
+     "Crypto Exchange", "SEBI", "SEBI Registered (VDA)", "coindcx.com"),
+    ("CoinSwitch",
+     ["coinswitch", "coin switch", "coinswitch kuber"],
+     "Crypto Exchange", "SEBI", "SEBI Registered (VDA)", "coinswitch.co"),
+    ("WazirX",
+     ["wazirx", "wazir x", "wazirx crypto"],
+     "Crypto Exchange", "SEBI", "SEBI Registered (VDA)", "wazirx.com"),
     ("Coin by Zerodha",
-     ["coin", "zerodha coin", "coin app"],
+     ["coin by zerodha", "zerodha coin", "coin zerodha"],
      "Mutual Fund Platform", "SEBI", "SEBI Registered", "coin.zerodha.com"),
     ("ET Money",
      ["et money", "etmoney", "economic times money"],
@@ -375,101 +481,76 @@ def verify_platform(query):
     """
     Main verification function.
     Returns a rich dict with result, confidence, details.
+    Always runs Google lookup regardless of local registry match.
     """
     if not query or not query.strip():
         return _not_found(query or "")
 
     raw_query  = query.strip()
     norm_query = normalize_name(raw_query)
-    # Detect suspicious URLs first
-    
-    
 
-    # ── Fast path: check raw query against every registry entry for clone ──
-    # This catches "Groww Profit Double" before normalization strips keywords
-    raw_lower = raw_query.lower()
+    # ── Fast path: clone detection ──
     for idx, entry in enumerate(REGISTRY):
         cname, caliases = entry[0], entry[1]
         if is_clone_attempt(raw_query, cname, caliases):
             _, _, category, regulator, reg_type, website = entry
+            gdata = _google_verify(raw_query, regulator, website)
             return {
-                "result":       "SUSPICIOUS CLONE",
-                "trust_score":  15,
-                "risk_level":   "Dangerous",
-                "confidence":   90,
-                "found":        True,
-                "is_clone":     True,
-                "matched_name": cname,
-                "category":     category,
-                "regulator":    regulator,
-                "reg_type":     reg_type,
-                "website":      website,
-                "match_type":   "clone",
-                "explanation":  (
+                "result": "SUSPICIOUS CLONE", "trust_score": 15,
+                "risk_level": "Dangerous", "confidence": 90,
+                "found": True, "is_clone": True,
+                "matched_name": cname, "category": category,
+                "regulator": regulator, "reg_type": reg_type,
+                "website": website, "match_type": "clone",
+                "explanation": (
                     f"'{raw_query}' appears to be impersonating '{cname}', "
                     f"a legitimate {regulator}-registered platform. "
                     f"This looks like a FAKE CLONE app. Do NOT use it."
-                )
+                ),
+                **_google_fields(gdata)
             }
 
-    best_score      = 0.0
-    best_idx        = -1
-    best_match_type = ""
+    best_score, best_idx, best_match_type = 0.0, -1, ""
 
     for (norm_alias, reg_idx) in _INDEX:
         if not norm_alias:
             continue
-
-        # 1. Exact match
         if norm_query == norm_alias:
-            best_score      = 1.0
-            best_idx        = reg_idx
-            best_match_type = "exact"
+            best_score, best_idx, best_match_type = 1.0, reg_idx, "exact"
             break
-
-        # 2. Substring match
         if norm_alias in norm_query or norm_query in norm_alias:
             longer  = max(len(norm_alias), len(norm_query))
             shorter = min(len(norm_alias), len(norm_query))
             score   = min((shorter / longer) + 0.2, 0.95)
             if score > best_score:
-                best_score      = score
-                best_idx        = reg_idx
-                best_match_type = "partial"
-
-        # 3. Fuzzy — only when no strong match yet
+                best_score, best_idx, best_match_type = score, reg_idx, "partial"
         if best_score < 0.85:
             fscore = fuzzy_match(norm_query, norm_alias)
-            if fscore > best_score and fscore >= 0.65:
-                best_score      = fscore
-                best_idx        = reg_idx
-                best_match_type = "fuzzy"
+            if fscore > best_score and fscore >= 0.75:
+                best_score, best_idx, best_match_type = fscore, reg_idx, "fuzzy"
 
-    if best_idx == -1 or best_score < 0.55:
+    # ── Not in local registry — run Google lookup and return ──
+    if best_idx == -1 or best_score < 0.65:
         return _not_found(raw_query)
 
     canonical_name, aliases, category, regulator, reg_type, website = REGISTRY[best_idx]
 
-    # Clone / impersonation check
     if is_clone_attempt(raw_query, canonical_name, aliases):
+        gdata = _google_verify(raw_query, regulator, website)
         return {
-            "result":       "SUSPICIOUS CLONE",
-            "trust_score":  15,
-            "risk_level":   "Dangerous",
-            "confidence":   round(best_score * 100),
-            "found":        True,
-            "is_clone":     True,
-            "matched_name": canonical_name,
-            "category":     category,
-            "regulator":    regulator,
-            "reg_type":     reg_type,
-            "website":      website,
-            "match_type":   best_match_type,
-            "explanation":  (
+            "result": "SUSPICIOUS CLONE", "trust_score": 15,
+            "risk_level": "Dangerous",
+            "confidence": round(best_score * 100),
+            "found": True, "is_clone": True,
+            "matched_name": canonical_name, "category": category,
+            "regulator": regulator, "reg_type": reg_type,
+            "website": website, "match_type": best_match_type,
+            "explanation": (
                 f"'{raw_query}' appears to be impersonating '{canonical_name}', "
                 f"a legitimate {regulator}-registered platform. "
                 f"This looks like a FAKE CLONE app. Do NOT use it."
-            )
+            ),
+            **_google_fields(gdata)
         }
 
     confidence = round(best_score * 100)
@@ -480,43 +561,75 @@ def verify_platform(query):
     else:
         result, trust_score, risk_level = "POSSIBLY VERIFIED", 60, "Suspicious"
 
+    gdata = _google_verify(canonical_name, regulator, website)
+
     return {
-        "result":       result,
-        "trust_score":  trust_score,
-        "risk_level":   risk_level,
-        "confidence":   confidence,
-        "found":        True,
-        "is_clone":     False,
-        "matched_name": canonical_name,
-        "category":     category,
-        "regulator":    regulator,
-        "reg_type":     reg_type,
-        "website":      website,
-        "match_type":   best_match_type,
-        "explanation":  (
+        "result": result, "trust_score": trust_score,
+        "risk_level": risk_level, "confidence": confidence,
+        "found": True, "is_clone": False,
+        "matched_name": canonical_name, "category": category,
+        "regulator": regulator, "reg_type": reg_type,
+        "website": website, "match_type": best_match_type,
+        "explanation": (
             f"'{canonical_name}' is registered with {regulator} as a {reg_type}. "
             f"Official website: {website}. Confidence: {confidence}%."
-        )
+        ),
+        **_google_fields(gdata)
+    }
+
+
+def _google_fields(gdata):
+    return {
+        "play_store":    gdata["play_store"],
+        "rbi_mention":   gdata["rbi_mention"],
+        "sebi_mention":  gdata["sebi_mention"],
+        "irdai_mention": gdata.get("irdai_mention", False),
+        "google_found":  gdata.get("wiki_found", False),
+        "google_info":   gdata["google_info"],
+        "search_url":    gdata["search_url"],
+        "wiki_found":    gdata.get("wiki_found", False),
+        "wiki_title":    gdata.get("wiki_title", ""),
+        "wiki_summary":  gdata.get("wiki_summary", ""),
+        "wiki_url":      gdata.get("wiki_url", ""),
     }
 
 
 def _not_found(query):
-    return {
-        "result":       "NOT VERIFIED",
-        "trust_score":  10,
-        "risk_level":   "Dangerous",
-        "confidence":   0,
-        "found":        False,
-        "is_clone":     False,
-        "matched_name": None,
-        "category":     None,
-        "regulator":    None,
-        "reg_type":     None,
-        "website":      None,
-        "match_type":   "none",
-        "explanation":  (
-            f"'{query}' was not found in our RBI/SEBI/IRDAI verified database. "
-            "This does NOT mean it is fraudulent — it may be a newer platform. "
-            "Always verify directly on rbi.org.in or sebi.gov.in before investing."
+    gdata = _wikipedia_lookup(query)
+    has_reg = gdata["rbi_mention"] or gdata["sebi_mention"] or gdata["irdai_mention"]
+
+    if gdata["wiki_found"] and has_reg:
+        result, trust_score, risk_level = "POSSIBLY VERIFIED", 50, "Suspicious"
+        reg_found = "/".join(filter(None, [
+            "RBI" if gdata["rbi_mention"] else "",
+            "SEBI" if gdata["sebi_mention"] else "",
+            "IRDAI" if gdata["irdai_mention"] else ""
+        ]))
+        explanation = (
+            f"'{query}' is not in our local registry but Wikipedia mentions {reg_found} regulation. "
+            f"Wikipedia: {gdata['wiki_summary'][:200]}... "
+            f"Verify on rbi.org.in or sebi.gov.in before investing."
         )
+    elif gdata["wiki_found"]:
+        result, trust_score, risk_level = "NOT VERIFIED", 20, "Dangerous"
+        explanation = (
+            f"'{query}' found on Wikipedia but no RBI/SEBI/IRDAI regulation mentioned. "
+            f"Wikipedia: {gdata['wiki_summary'][:200]}... "
+            f"Do NOT invest without verifying regulatory status."
+        )
+    else:
+        result, trust_score, risk_level = "NOT VERIFIED", 10, "Dangerous"
+        explanation = (
+            f"'{query}' was not found in our database or Wikipedia. "
+            f"No regulatory evidence found. "
+            f"Do NOT invest or share bank details with unverified platforms."
+        )
+    return {
+        "result": result, "trust_score": trust_score, "risk_level": risk_level,
+        "confidence": 0, "found": False, "is_clone": False,
+        "matched_name": gdata.get("wiki_title") or None,
+        "category": None, "regulator": None, "reg_type": None,
+        "website": None, "match_type": "wikipedia",
+        "explanation": explanation,
+        **_google_fields(gdata)
     }

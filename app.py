@@ -1,39 +1,54 @@
 """
 TrustLens AI – app.py
-Flask application: auth, scan APIs, chatbot, fraud reports, analytics
 """
-import os
+import os, logging
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from flask_mysqldb import MySQL
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
-import ai_engine
-import verifier
+import ai_engine, verifier
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-fallback-key')
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB upload limit
 
-# ── MySQL Config ───────────────────────────────────────────────────────────────
+# ── MySQL ──────────────────────────────────────────────────────────────────────
 _mysql_url = os.environ.get('MYSQL_URL')
 if _mysql_url:
     _p = urlparse(_mysql_url)
-    app.config['MYSQL_HOST'] = _p.hostname
-    app.config['MYSQL_USER'] = _p.username
+    app.config['MYSQL_HOST']     = _p.hostname
+    app.config['MYSQL_USER']     = _p.username
     app.config['MYSQL_PASSWORD'] = _p.password
-    app.config['MYSQL_DB'] = _p.path.lstrip('/')
-    app.config['MYSQL_PORT'] = _p.port or 3306
+    app.config['MYSQL_DB']       = _p.path.lstrip('/')
+    app.config['MYSQL_PORT']     = _p.port or 3306
 else:
-    app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
-    app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'root')
+    app.config['MYSQL_HOST']     = os.environ.get('MYSQL_HOST', 'localhost')
+    app.config['MYSQL_USER']     = os.environ.get('MYSQL_USER', 'root')
     app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', '2007')
-    app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'trustlens_ai')
+    app.config['MYSQL_DB']       = os.environ.get('MYSQL_DB', 'trustlens_ai')
 app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
 
 mysql = MySQL(app)
+
+# ── Rate Limiter ───────────────────────────────────────────────────────────────
+limiter = Limiter(get_remote_address, app=app, default_limits=["200 per day", "60 per hour"],
+                  storage_uri="memory://")
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def login_required(f):
@@ -46,48 +61,49 @@ def login_required(f):
     return decorated
 
 def save_scan(user_id, scan_type, input_text, result, trust_score, explanation):
-    cur = mysql.connection.cursor()
-    cur.execute(
-        "INSERT INTO scans (user_id, scan_type, input_text, result, trust_score, explanation) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (user_id, scan_type, str(input_text)[:500], result, trust_score, str(explanation)[:1000])
-    )
-    mysql.connection.commit()
-    cur.close()
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute(
+            "INSERT INTO scans (user_id, scan_type, input_text, result, trust_score, explanation) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (user_id, scan_type, str(input_text)[:500], result, trust_score, str(explanation)[:1000])
+        )
+        mysql.connection.commit()
+        cur.close()
+    except Exception as e:
+        logger.error("save_scan error: %s", e)
 
 def get_dashboard_stats(uid):
     cur = mysql.connection.cursor()
     cur.execute("SELECT COUNT(*) as total FROM scans WHERE user_id=%s", (uid,))
     total = cur.fetchone()['total']
-
     cur.execute(
         "SELECT COUNT(*) as c FROM scans WHERE user_id=%s "
-        "AND result IN ('FAKE','SCAM','FRAUDULENT','DANGEROUS','SUSPICIOUS','BLACKLISTED','NOT FOUND')",
-        (uid,)
-    )
+        "AND result IN ('FAKE','SCAM','FRAUDULENT','DANGEROUS','SUSPICIOUS','BLACKLISTED','NOT FOUND')", (uid,))
     scam_count = cur.fetchone()['c']
-
     cur.execute("SELECT COUNT(*) as c FROM scans WHERE user_id=%s AND result IN ('SAFE','VERIFIED')", (uid,))
     safe_count = cur.fetchone()['c']
-
     cur.execute("SELECT scan_type, COUNT(*) as c FROM scans WHERE user_id=%s GROUP BY scan_type", (uid,))
     by_type = cur.fetchall()
-
     cur.execute("SELECT * FROM scans WHERE user_id=%s ORDER BY timestamp DESC LIMIT 5", (uid,))
     recent = cur.fetchall()
-
     cur.execute("SELECT COUNT(*) as c FROM scans WHERE user_id=%s AND DATE(timestamp)=CURDATE()", (uid,))
     today_count = cur.fetchone()['c']
-
     cur.execute(
         "SELECT DATE(timestamp) as day, COUNT(*) as c FROM scans "
         "WHERE user_id=%s AND timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY) "
-        "GROUP BY DATE(timestamp) ORDER BY day",
-        (uid,)
-    )
+        "GROUP BY DATE(timestamp) ORDER BY day", (uid,))
     weekly = cur.fetchall()
     cur.close()
     return total, scam_count, safe_count, by_type, recent, today_count, weekly
+
+# ── Security headers ───────────────────────────────────────────────────────────
+@app.after_request
+def security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 # ── Public Routes ──────────────────────────────────────────────────────────────
 @app.route('/')
@@ -95,21 +111,23 @@ def index():
     return render_template('index.html')
 
 @app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("10 per hour")
 def register():
     if request.method == 'POST':
-        username = request.form['username'].strip()
-        email = request.form['email'].strip()
-        password = request.form['password']
+        username = request.form.get('username', '').strip()[:80]
+        email    = request.form.get('email', '').strip()[:120]
+        password = request.form.get('password', '')
+        if not username or not email or not password or len(password) < 6:
+            flash('All fields required. Password min 6 chars.', 'danger')
+            return redirect(url_for('register'))
         cur = mysql.connection.cursor()
         cur.execute("SELECT id FROM users WHERE email=%s OR username=%s", (email, username))
         if cur.fetchone():
             flash('Username or email already exists.', 'danger')
             cur.close()
             return redirect(url_for('register'))
-        cur.execute(
-            "INSERT INTO users (username, email, password) VALUES (%s, %s, %s)",
-            (username, email, generate_password_hash(password))
-        )
+        cur.execute("INSERT INTO users (username, email, password) VALUES (%s, %s, %s)",
+                    (username, email, generate_password_hash(password)))
         mysql.connection.commit()
         cur.close()
         flash('Registration successful! Please login.', 'success')
@@ -117,16 +135,17 @@ def register():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("20 per hour")
 def login():
     if request.method == 'POST':
-        email = request.form['email'].strip()
-        password = request.form['password']
+        email    = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
         cur = mysql.connection.cursor()
         cur.execute("SELECT * FROM users WHERE email=%s", (email,))
         user = cur.fetchone()
         cur.close()
         if user and check_password_hash(user['password'], password):
-            session['user_id'] = user['id']
+            session['user_id']  = user['id']
             session['username'] = user['username']
             flash(f"Welcome back, {user['username']}!", 'success')
             return redirect(url_for('dashboard'))
@@ -145,9 +164,8 @@ def logout():
 def dashboard():
     uid = session['user_id']
     total, scam_count, safe_count, by_type, recent, today_count, weekly = get_dashboard_stats(uid)
-    return render_template('dashboard.html',
-                           total=total, scam_count=scam_count, safe_count=safe_count,
-                           by_type=by_type, recent=recent,
+    return render_template('dashboard.html', total=total, scam_count=scam_count,
+                           safe_count=safe_count, by_type=by_type, recent=recent,
                            today_count=today_count, weekly=weekly)
 
 @app.route('/fake-job')
@@ -180,15 +198,30 @@ def website_scanner():
 def threat_map():
     return render_template('threat_map.html')
 
+@app.route('/api/threats')
+@login_required
+@limiter.limit("60 per hour")
+def api_threats():
+    from threat_intel import get_live_threats
+    return jsonify(get_live_threats())
+
+@app.route('/qr-scanner')
+@login_required
+def qr_scanner():
+    return render_template('qr_scanner.html')
+
+@app.route('/app-analyzer')
+@login_required
+def app_analyzer():
+    return render_template('app_analyzer.html')
+
 @app.route('/report-fraud')
 @login_required
 def report_fraud():
     cur = mysql.connection.cursor()
     cur.execute(
         "SELECT fr.*, u.username FROM fraud_reports fr "
-        "JOIN users u ON fr.user_id=u.id "
-        "ORDER BY fr.timestamp DESC LIMIT 50"
-    )
+        "JOIN users u ON fr.user_id=u.id ORDER BY fr.timestamp DESC LIMIT 50")
     reports = cur.fetchall()
     cur.close()
     return render_template('report_fraud.html', reports=reports)
@@ -202,122 +235,217 @@ def history():
     cur.close()
     return render_template('history.html', scans=scans)
 
-# ── Scan API Endpoints ─────────────────────────────────────────────────────────
+# ── Scan APIs ──────────────────────────────────────────────────────────────────
 @app.route('/api/scan/job', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
 def api_scan_job():
-    data = request.get_json()
-    res = ai_engine.detect_fake_job(
-        data.get('title', ''), data.get('company', ''),
-        data.get('salary', ''), data.get('description', '')
-    )
-    input_text = f"Job: {data.get('title')} at {data.get('company')}"
-    save_scan(session['user_id'], 'Fake Job', input_text, res['result'], res['trust_score'], res['explanation'])
+    data = request.get_json() or {}
+    res  = ai_engine.detect_fake_job(
+        data.get('title', '')[:200], data.get('company', '')[:200],
+        data.get('salary', '')[:100], data.get('description', '')[:2000])
+    save_scan(session['user_id'], 'Fake Job',
+              f"Job: {data.get('title')} at {data.get('company')}",
+              res['result'], res['trust_score'], res['explanation'])
     return jsonify(res)
 
 @app.route('/api/scan/message', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
 def api_scan_message():
-    data = request.get_json()
-    res = ai_engine.detect_scam_message(data.get('message', ''))
-    save_scan(session['user_id'], 'Scam Message', data.get('message', '')[:200],
+    data = request.get_json() or {}
+    msg  = data.get('message', '')[:2000]
+    res  = ai_engine.detect_scam_message(msg)
+    save_scan(session['user_id'], 'Scam Message', msg[:200],
               res['result'], res['trust_score'], res['explanation'])
     return jsonify(res)
 
 @app.route('/api/scan/verify', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
 def api_verify():
-    data = request.get_json(force=True) or {}
-    query = data.get('query', '').strip()
-    res = verifier.verify_platform(query)
+    data  = request.get_json(force=True) or {}
+    query = data.get('query', '').strip()[:200]
+    res   = verifier.verify_platform(query)
     save_scan(session['user_id'], 'RBI/SEBI Check', query,
               res['result'], res['trust_score'], res['explanation'])
     return jsonify(res)
 
 @app.route('/api/scan/loan', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
 def api_scan_loan():
-    data = request.get_json()
-    res = ai_engine.detect_loan_app(
-        data.get('app_name', ''), data.get('permissions', ''), data.get('interest_rate', 0)
-    )
+    data = request.get_json() or {}
+    res  = ai_engine.detect_loan_app(
+        data.get('app_name', '')[:200],
+        data.get('permissions', '')[:500],
+        data.get('interest_rate', 0))
     save_scan(session['user_id'], 'Loan App', data.get('app_name', ''),
               res['result'], res['trust_score'], res['explanation'])
     return jsonify(res)
 
 @app.route('/api/scan/website', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
 def api_scan_website():
-    data = request.get_json()
-    url = data.get('url', '')
-    res = ai_engine.scan_website(url)
-    save_scan(session['user_id'], 'Website Scan', url, res['result'], res['trust_score'], res['explanation'])
+    data = request.get_json() or {}
+    url  = data.get('url', '')[:500]
+    res  = ai_engine.scan_website(url)
+    save_scan(session['user_id'], 'Website Scan', url,
+              res['result'], res['trust_score'], res['explanation'])
+    # Save intel to dedicated table
+    intel = res.get('intel')
+    if intel:
+        try:
+            from urllib.parse import urlparse
+            cur = mysql.connection.cursor()
+            cur.execute(
+                "INSERT INTO website_intel "
+                "(user_id, url, domain, result, trust_score, reputation, scam_alert, "
+                "vt_malicious, vt_suspicious, scam_signals, trusted_signals, ai_summary) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    session['user_id'], url, intel.get('domain', ''),
+                    res['result'], res['trust_score'],
+                    intel.get('reputation', ''),
+                    1 if intel.get('scam_alert') else 0,
+                    intel.get('virustotal', {}).get('malicious', 0),
+                    intel.get('virustotal', {}).get('suspicious', 0),
+                    ','.join(intel.get('sentiment', {}).get('scam_signals', []))[:500],
+                    ','.join(intel.get('sentiment', {}).get('trusted_signals', []))[:500],
+                    intel.get('ai_summary', '')[:1000]
+                )
+            )
+            mysql.connection.commit()
+            cur.close()
+        except Exception as e:
+            logger.error("website_intel save error: %s", e)
     return jsonify(res)
 
-# ── Chatbot API ────────────────────────────────────────────────────────────────
+@app.route('/api/scan/qr', methods=['POST'])
+@login_required
+@limiter.limit("20 per hour")
+def api_scan_qr():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image uploaded'}), 400
+    f = request.files['image']
+    if not f or not allowed_file(f.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+    filename = secure_filename(f.filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    f.save(filepath)
+    res = ai_engine.scan_qr_image(filepath)
+    save_scan(session['user_id'], 'QR Scanner', filename,
+              res['result'], res['trust_score'], res['explanation'])
+    try:
+        os.remove(filepath)
+    except Exception:
+        pass
+    return jsonify(res)
+
+@app.route('/api/scan/qr-text', methods=['POST'])
+@login_required
+@limiter.limit("30 per hour")
+def api_scan_qr_text():
+    data = request.get_json() or {}
+    qr_text = data.get('qr_text', '').strip()[:1000]
+    if not qr_text:
+        return jsonify({'error': 'No QR text provided'}), 400
+    res = ai_engine.scan_qr_text(qr_text)
+    save_scan(session['user_id'], 'QR Scanner', qr_text[:200],
+              res['result'], res['trust_score'], res['explanation'])
+    return jsonify(res)
+
+@app.route('/api/scan/app', methods=['POST'])
+@login_required
+@limiter.limit("20 per hour")
+def api_scan_app():
+    data = request.get_json() or {}
+    res  = ai_engine.analyze_app_permissions(
+        data.get('app_name', '')[:200],
+        data.get('permissions', []),
+        data.get('store_rating', 0),
+        data.get('installs', ''))
+    save_scan(session['user_id'], 'App Analyzer', data.get('app_name', ''),
+              res['result'], res['trust_score'], res['explanation'])
+    return jsonify(res)
+
+# ── Chatbot ────────────────────────────────────────────────────────────────────
 @app.route('/api/chatbot', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
 def api_chatbot():
     try:
-        data = request.get_json(force=True) or {}
-        user_msg = data.get('message', '').strip()
+        data     = request.get_json(force=True) or {}
+        user_msg = data.get('message', '').strip()[:500]
         if not user_msg:
             return jsonify({"response": "Please type a message."})
-
         bot_response = ai_engine.get_chatbot_response(user_msg)
-
-        # Log to DB — silently skip if table doesn't exist yet
         try:
             cur = mysql.connection.cursor()
             cur.execute(
                 "INSERT INTO chatbot_logs (user_id, user_message, bot_response) VALUES (%s, %s, %s)",
-                (session['user_id'], user_msg[:500], bot_response[:2000])
-            )
+                (session['user_id'], user_msg, bot_response[:2000]))
             mysql.connection.commit()
             cur.close()
         except Exception:
             pass
-
         return jsonify({"response": bot_response})
     except Exception as e:
-        return jsonify({"response": "Sorry, I encountered an error. Please try again."}), 200
+        logger.error("Chatbot error: %s", e)
+        return jsonify({"response": "Sorry, I encountered an error. Please try again."})
 
-# ── Fraud Report API ───────────────────────────────────────────────────────────
+# ── Fraud Report ───────────────────────────────────────────────────────────────
 @app.route('/api/report', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
 def api_report():
-    data = request.get_json()
+    data        = request.get_json() or {}
     report_type = data.get('report_type', 'other')
-    target = data.get('target', '').strip()
-    description = data.get('description', '').strip()
-
+    target      = data.get('target', '').strip()[:500]
+    description = data.get('description', '').strip()[:2000]
     if not target or not description:
         return jsonify({"error": "Target and description are required."}), 400
-
     cur = mysql.connection.cursor()
     cur.execute(
         "INSERT INTO fraud_reports (user_id, report_type, target, description) VALUES (%s, %s, %s, %s)",
-        (session['user_id'], report_type, target[:500], description[:2000])
-    )
+        (session['user_id'], report_type, target, description))
     mysql.connection.commit()
     cur.close()
+    return jsonify({"success": True, "message": "Report submitted. Thank you!"})
 
-    return jsonify({"success": True, "message": "Report submitted successfully. Thank you for helping the community!"})
-
-# ── Analytics API ──────────────────────────────────────────────────────────────
+# ── Analytics ──────────────────────────────────────────────────────────────────
 @app.route('/api/analytics')
 @login_required
 def api_analytics():
     uid = session['user_id']
     total, scam_count, safe_count, by_type, recent, today_count, weekly = get_dashboard_stats(uid)
     return jsonify({
-        "total": total,
-        "scam_count": scam_count,
-        "safe_count": safe_count,
-        "today_count": today_count,
-        "by_type": by_type,
+        "total": total, "scam_count": scam_count, "safe_count": safe_count,
+        "today_count": today_count, "by_type": by_type,
         "weekly": [{"day": str(r['day']), "c": r['c']} for r in weekly]
     })
+
+# ── WhatsApp Webhook (Twilio) ──────────────────────────────────────────────────
+@app.route('/webhook/whatsapp', methods=['POST'])
+def whatsapp_webhook():
+    try:
+        from_number = request.form.get('From', '')
+        body        = request.form.get('Body', '').strip()
+        if not body:
+            return '', 200
+        response_text = ai_engine.get_chatbot_response(body)
+        twilio_sid   = os.environ.get('TWILIO_ACCOUNT_SID')
+        twilio_token = os.environ.get('TWILIO_AUTH_TOKEN')
+        twilio_from  = os.environ.get('TWILIO_WHATSAPP_FROM', 'whatsapp:+14155238886')
+        if twilio_sid and twilio_token and twilio_sid != 'your_sid':
+            from twilio.rest import Client
+            Client(twilio_sid, twilio_token).messages.create(
+                body=response_text, from_=twilio_from, to=from_number)
+        return '', 200
+    except Exception as e:
+        logger.error("WhatsApp webhook error: %s", e)
+        return '', 200
 
 if __name__ == '__main__':
     app.run(debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')

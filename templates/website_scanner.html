@@ -5,36 +5,27 @@
 {% include "sidebar.html" %}
 
 <div class="scan-layout">
-  <div class="mb-4">
-    <div class="d-flex align-items-center gap-3 mb-2">
-      <div class="feature-icon icon-purple" style="margin:0;width:44px;height:44px;font-size:1.2rem;">
-        <i class="bi bi-globe2"></i>
-      </div>
+  <div class="page-header mb-4">
+    <div class="d-flex align-items-center gap-3">
+      <div class="feature-icon icon-purple" style="margin:0;flex-shrink:0;"><i class="bi bi-globe2"></i></div>
       <div>
-        <h4 style="font-weight:700;margin:0;">Website / Phishing Scanner</h4>
-        <p style="color:var(--text-muted);font-size:.85rem;margin:0;">Advanced AI-powered URL analysis with animated scan stages</p>
+        <h4 class="page-title">Website / Phishing Scanner</h4>
+        <p class="page-sub">AI + Google Intelligence + VirusTotal + Reddit reputation analysis</p>
       </div>
     </div>
   </div>
 
-  <div class="row g-4">
-    <!-- Left: Input + Stages -->
-    <div class="col-lg-6">
+  <div class="row g-3">
+    <!-- Left: Input -->
+    <div class="col-lg-5">
       <div class="glass-card">
-        <h6 style="font-weight:700;margin-bottom:20px;color:var(--text-muted);font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;">
-          <i class="bi bi-link-45deg me-2" style="color:var(--neon-blue);"></i>Enter URL to Scan
-        </h6>
-
+        <div class="card-section-label"><i class="bi bi-link-45deg me-2" style="color:var(--neon-blue);"></i>Enter URL to Scan</div>
         <form id="urlForm">
-          <div class="mb-4">
-            <label class="form-label">Website URL *</label>
+          <div class="mb-3">
+            <label class="form-label">Website URL</label>
             <div class="input-group">
-              <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);">
-                <i class="bi bi-globe"></i>
-              </span>
-              <input type="text" class="form-control" id="urlInput"
-                     placeholder="https://example.com"
-                     style="border-left:none !important;" required />
+              <span class="input-group-text" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-right:none;color:var(--text-muted);"><i class="bi bi-globe"></i></span>
+              <input type="text" class="form-control" id="urlInput" placeholder="https://example.com" style="border-left:none !important;" required>
             </div>
           </div>
           <button type="submit" class="btn-neon btn w-100" id="scanBtn">
@@ -42,17 +33,17 @@
           </button>
         </form>
 
-        <!-- Animated scan stages (shown during scan) -->
-        <div id="scanStages" style="display:none;margin-top:24px;">
+        <!-- Scan stages -->
+        <div id="scanStages" style="display:none;margin-top:20px;">
           <div class="scan-progress-bar"><div class="scan-progress-fill" id="scanProgress"></div></div>
-          {% set stages = [
-            ('ssl',     'bi-lock',        'Checking SSL Certificate'),
-            ('domain',  'bi-globe',       'Verifying Domain'),
-            ('keywords','bi-search',      'Detecting Phishing Keywords'),
-            ('pattern', 'bi-diagram-3',   'Analyzing URL Patterns'),
-            ('ai',      'bi-cpu',         'Running AI Fraud Analysis')
+          {% for sid, icon, label in [
+            ('ssl',     'bi-lock',       'Checking SSL / HTTPS'),
+            ('domain',  'bi-globe',      'Verifying Domain'),
+            ('gsb',     'bi-google',     'Google Safe Browsing'),
+            ('intel',   'bi-search',     'Fetching Google Intelligence'),
+            ('vt',      'bi-shield',     'VirusTotal Scan'),
+            ('ai',      'bi-cpu',        'AI Fraud Analysis')
           ] %}
-          {% for sid, icon, label in stages %}
           <div class="scan-stage" id="stage_{{ sid }}">
             <i class="bi {{ icon }} stage-icon" style="color:var(--text-muted);"></i>
             <span class="stage-label">{{ label }}</span>
@@ -61,43 +52,108 @@
           {% endfor %}
         </div>
 
-        <!-- Sample URLs -->
+        <!-- Samples -->
         <div class="mt-3" id="sampleSection">
-          <small style="color:var(--text-muted);">Try a sample:</small>
+          <div class="sample-label">Try a sample:</div>
           <div class="d-flex flex-column gap-2 mt-2">
-            <button class="btn btn-sm text-start" style="background:rgba(0,255,136,0.1);color:var(--neon-green);border:1px solid rgba(0,255,136,.2);border-radius:8px;font-size:.78rem;padding:8px 12px;"
-                    onclick="fillUrl('https://www.sbi.co.in/web/personal-banking')">
-              ✓ https://www.sbi.co.in/web/personal-banking
-            </button>
-            <button class="btn btn-sm text-start" style="background:rgba(255,215,0,0.1);color:var(--neon-yellow);border:1px solid rgba(255,215,0,.2);border-radius:8px;font-size:.78rem;padding:8px 12px;"
-                    onclick="fillUrl('http://sbi-secure-login-verify.tk/account/update')">
-              ⚠ http://sbi-secure-login-verify.tk/account/update
-            </button>
-            <button class="btn btn-sm text-start" style="background:rgba(255,51,102,0.1);color:var(--neon-red);border:1px solid rgba(255,51,102,.2);border-radius:8px;font-size:.78rem;padding:8px 12px;"
-                    onclick="fillUrl('http://192.168.1.1/banking/login/confirm/otp')">
-              ✗ http://192.168.1.1/banking/login/confirm/otp
-            </button>
+            <button class="sample-btn sample-safe text-start" onclick="fillUrl('https://www.sbi.co.in')">✓ https://www.sbi.co.in</button>
+            <button class="sample-btn sample-danger text-start" onclick="fillUrl('http://sbi-secure-login-verify.tk/account/update')">⚠ http://sbi-secure-login-verify.tk/...</button>
+            <button class="sample-btn sample-danger text-start" onclick="fillUrl('http://192.168.1.1/banking/login/otp')">✗ http://192.168.1.1/banking/login/otp</button>
           </div>
         </div>
+      </div>
+
+      <!-- Tips -->
+      <div class="glass-card mt-3 tips-card">
+        <div class="tips-title"><i class="bi bi-lightbulb-fill me-2" style="color:var(--neon-yellow);"></i>What We Check</div>
+        <ul class="tips-list">
+          <li><i class="bi bi-check-circle-fill" style="color:var(--neon-blue);"></i>Google Safe Browsing API</li>
+          <li><i class="bi bi-check-circle-fill" style="color:var(--neon-blue);"></i>VirusTotal (70+ engines)</li>
+          <li><i class="bi bi-check-circle-fill" style="color:var(--neon-blue);"></i>Scam &amp; complaint reports</li>
+          <li><i class="bi bi-check-circle-fill" style="color:var(--neon-blue);"></i>Reddit discussions</li>
+          <li><i class="bi bi-check-circle-fill" style="color:var(--neon-blue);"></i>Wikipedia reputation</li>
+          <li><i class="bi bi-check-circle-fill" style="color:var(--neon-blue);"></i>AI sentiment analysis</li>
+        </ul>
       </div>
     </div>
 
     <!-- Right: Results -->
-    <div class="col-lg-6">
-      <div class="glass-card text-center" id="defaultState" style="padding:60px 28px !important;">
-        <i class="bi bi-globe" style="font-size:3.5rem;color:var(--text-muted);display:block;margin-bottom:16px;"></i>
-        <h6 style="color:var(--text-muted);font-weight:600;">Enter a URL to scan</h6>
-        <p style="color:var(--text-muted);font-size:.85rem;">AI-powered phishing detection with animated scan stages.</p>
+    <div class="col-lg-7">
+      <div class="glass-card empty-state" id="defaultState">
+        <i class="bi bi-globe empty-icon"></i>
+        <h6 class="empty-title">Enter a URL to scan</h6>
+        <p class="empty-sub">AI + Google Intelligence will analyze the website reputation.</p>
       </div>
 
-      {% include "result_panel.html" %}
+      <div id="allResults" style="display:none;">
 
-      <!-- Security Report Card -->
-      <div id="reportCard" style="display:none;" class="glass-card mt-3">
-        <h6 style="font-weight:700;margin-bottom:16px;font-size:.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">
-          <i class="bi bi-file-earmark-text me-2" style="color:var(--neon-blue);"></i>Security Report Card
-        </h6>
-        <div class="report-card-grid" id="reportCardGrid"></div>
+        <!-- Main result -->
+        <div class="glass-card result-main-card mb-3">
+          <div class="result-top">
+            <div class="result-icon-wrap" id="resultIconWrap"><i class="bi bi-shield-check" id="resultIcon"></i></div>
+            <div class="result-info">
+              <div class="result-badge-wrap"><span class="result-badge badge-safe" id="resultBadge">SAFE</span></div>
+              <div class="result-title" id="resultText">—</div>
+              <p class="result-explanation" id="explanationText">—</p>
+            </div>
+          </div>
+          <div class="trust-score-section mt-3">
+            <div class="d-flex justify-content-between mb-1">
+              <span style="font-size:.8rem;color:var(--text-muted);">Trust Score</span>
+              <strong id="trustNum" style="font-size:.9rem;">0</strong>
+            </div>
+            <div class="trust-bar-wrap"><div class="trust-bar" id="trustBar" style="width:0%;"></div></div>
+            <div id="riskLabel" style="font-size:.75rem;margin-top:4px;font-weight:600;"></div>
+          </div>
+        </div>
+
+        <!-- Security Report Card -->
+        <div class="glass-card mb-3" id="reportCard">
+          <div class="card-section-label"><i class="bi bi-file-earmark-text me-2" style="color:var(--neon-blue);"></i>Security Report Card</div>
+          <div class="report-card-grid" id="reportCardGrid"></div>
+        </div>
+
+        <!-- Google Intelligence Section -->
+        <div class="glass-card mb-3" id="intelCard" style="display:none;">
+          <div class="card-section-label" style="color:var(--neon-yellow);">
+            <i class="bi bi-search me-2"></i>Google Intelligence
+            <span id="reputationBadge" class="ms-auto" style="font-size:.72rem;padding:2px 10px;border-radius:20px;font-weight:700;"></span>
+          </div>
+
+          <!-- AI Summary -->
+          <div class="intel-summary mb-3" id="aiSummary"></div>
+
+          <!-- VirusTotal -->
+          <div id="vtSection" style="display:none;" class="mb-3">
+            <div class="intel-section-title"><i class="bi bi-shield-fill me-2" style="color:#4285f4;"></i>VirusTotal Results</div>
+            <div id="vtContent"></div>
+          </div>
+
+          <!-- Scam Alerts -->
+          <div id="scamAlertSection" style="display:none;" class="mb-3">
+            <div class="intel-section-title" style="color:var(--neon-red);"><i class="bi bi-exclamation-octagon me-2"></i>Scam / Fraud Reports Found</div>
+            <div id="scamResults"></div>
+          </div>
+
+          <!-- Reddit -->
+          <div id="redditSection" style="display:none;" class="mb-3">
+            <div class="intel-section-title"><i class="bi bi-reddit me-2" style="color:#ff4500;"></i>Reddit Discussions</div>
+            <div id="redditResults"></div>
+          </div>
+
+          <!-- Wikipedia -->
+          <div id="wikiSection" style="display:none;" class="mb-3">
+            <div class="intel-section-title"><i class="bi bi-wikipedia me-2" style="color:#a855f7;"></i>Wikipedia</div>
+            <div id="wikiContent"></div>
+          </div>
+
+          <!-- Web Results -->
+          <div id="webSection" style="display:none;">
+            <div class="intel-section-title"><i class="bi bi-globe me-2" style="color:var(--neon-blue);"></i>Web Search Results</div>
+            <div id="webResults"></div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -105,70 +161,47 @@
 
 {% block extra_js %}
 <script>
-function fillUrl(url) {
-  document.getElementById('urlInput').value = url;
-}
+const STAGES = ['ssl','domain','gsb','intel','vt','ai'];
 
-const STAGES = ['ssl', 'domain', 'keywords', 'pattern', 'ai'];
-const STAGE_LABELS = {
-  ssl: 'Checking SSL Certificate',
-  domain: 'Verifying Domain',
-  keywords: 'Detecting Phishing Keywords',
-  pattern: 'Analyzing URL Patterns',
-  ai: 'Running AI Fraud Analysis'
-};
+function fillUrl(url) { document.getElementById('urlInput').value = url; }
 
 function setStage(id, state, msg) {
-  const el = document.getElementById('stage_' + id);
-  const st = document.getElementById('status_' + id);
+  const el   = document.getElementById('stage_' + id);
+  const st   = document.getElementById('status_' + id);
   const icon = el.querySelector('.stage-icon');
   el.className = 'scan-stage ' + state;
-  if (state === 'active') {
-    icon.style.color = 'var(--neon-blue)';
-    st.textContent = 'Scanning...';
-    st.style.color = 'var(--neon-blue)';
-  } else if (state === 'done') {
-    icon.style.color = 'var(--neon-green)';
-    st.textContent = msg || '✓ Done';
-    st.style.color = 'var(--neon-green)';
-  } else if (state === 'failed') {
-    icon.style.color = 'var(--neon-red)';
-    st.textContent = msg || '✗ Issue';
-    st.style.color = 'var(--neon-red)';
-  }
+  const colors = { active:'var(--neon-blue)', done:'var(--neon-green)', failed:'var(--neon-red)' };
+  const labels = { active:'Scanning...', done: msg||'✓ Done', failed: msg||'✗ Issue' };
+  icon.style.color = colors[state] || 'var(--text-muted)';
+  st.textContent   = labels[state] || 'Waiting';
+  st.style.color   = colors[state] || 'var(--text-muted)';
 }
 
 function resetStages() {
   STAGES.forEach(id => {
     const el = document.getElementById('stage_' + id);
-    const st = document.getElementById('status_' + id);
-    const icon = el.querySelector('.stage-icon');
     el.className = 'scan-stage';
-    icon.style.color = 'var(--text-muted)';
-    st.textContent = 'Waiting';
-    st.style.color = 'var(--text-muted)';
+    el.querySelector('.stage-icon').style.color = 'var(--text-muted)';
+    document.getElementById('status_' + id).textContent = 'Waiting';
+    document.getElementById('status_' + id).style.color = 'var(--text-muted)';
   });
   document.getElementById('scanProgress').style.width = '0%';
 }
 
-async function runAnimatedScan(url) {
+async function runScan(url) {
   document.getElementById('defaultState').style.display = 'none';
-  document.getElementById('resultPanel').style.display = 'none';
-  document.getElementById('reportCard').style.display = 'none';
-  document.getElementById('scanStages').style.display = 'block';
+  document.getElementById('allResults').style.display   = 'none';
+  document.getElementById('scanStages').style.display   = 'block';
   document.getElementById('sampleSection').style.display = 'none';
   resetStages();
 
   const progress = document.getElementById('scanProgress');
-
-  // Animate through stages
   for (let i = 0; i < STAGES.length; i++) {
     setStage(STAGES[i], 'active');
-    progress.style.width = ((i + 1) / STAGES.length * 80) + '%';
-    await new Promise(r => setTimeout(r, 500 + Math.random() * 300));
+    progress.style.width = ((i + 1) / STAGES.length * 75) + '%';
+    await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
   }
 
-  // Actual API call
   let data;
   try {
     data = await postScan('/api/scan/website', { url });
@@ -179,51 +212,166 @@ async function runAnimatedScan(url) {
 
   progress.style.width = '100%';
 
-  // Mark stages pass/fail based on issues
   const issueText = (data.issues || []).join(' ').toLowerCase();
+  const intel     = data.intel || {};
+  const vt        = intel.virustotal || {};
+
   const stageResults = {
-    ssl:      !issueText.includes('https'),
-    domain:   !issueText.includes('ip address') && !issueText.includes('subdomain') && !issueText.includes('special'),
-    keywords: !issueText.includes('suspicious words'),
-    pattern:  !issueText.includes('tld') && !issueText.includes('special'),
-    ai:       data.result === 'SAFE'
+    ssl:    !issueText.includes('https'),
+    domain: !issueText.includes('ip address') && !issueText.includes('subdomain'),
+    gsb:    !issueText.includes('google safe browsing'),
+    intel:  !intel.scam_alert,
+    vt:     !vt.malicious,
+    ai:     data.result === 'SAFE'
   };
+  STAGES.forEach(id => setStage(id, stageResults[id] ? 'done' : 'failed',
+    stageResults[id] ? '✓ Passed' : '✗ Issue Found'));
 
-  STAGES.forEach(id => {
-    setStage(id, stageResults[id] ? 'done' : 'failed',
-             stageResults[id] ? '✓ Passed' : '✗ Issue Found');
-  });
+  await new Promise(r => setTimeout(r, 300));
+  renderMainResult(data);
+  renderReportCard(data, stageResults, issueText);
+  renderIntelSection(intel);
+  document.getElementById('allResults').style.display = 'block';
+}
 
-  await new Promise(r => setTimeout(r, 400));
+function renderMainResult(data) {
+  const isGood = data.result === 'SAFE';
+  const isMid  = data.result === 'SUSPICIOUS';
+  const color  = isGood ? 'var(--neon-green)' : isMid ? 'var(--neon-yellow)' : 'var(--neon-red)';
+  const icon   = isGood ? 'bi-shield-check'   : isMid ? 'bi-shield-exclamation' : 'bi-shield-x';
 
-  // Show result
-  renderResult(data);
+  document.getElementById('resultIcon').className = `bi ${icon}`;
+  document.getElementById('resultIcon').style.color = color;
+  document.getElementById('resultIconWrap').style.background = isGood
+    ? 'rgba(0,255,136,0.1)' : isMid ? 'rgba(255,215,0,0.1)' : 'rgba(255,51,102,0.1)';
 
-  // Build report card
+  const badge = document.getElementById('resultBadge');
+  badge.textContent = data.result;
+  badge.className = `result-badge ${isGood ? 'badge-safe' : isMid ? 'badge-warning' : 'badge-danger'}`;
+
+  const titles = { SAFE:'✅ Website Appears Safe', SUSPICIOUS:'⚠️ Suspicious Website', DANGEROUS:'🚨 Dangerous Website' };
+  document.getElementById('resultText').textContent = titles[data.result] || data.result;
+  document.getElementById('explanationText').textContent = data.explanation || '';
+
+  document.getElementById('trustNum').textContent = data.trust_score;
+  document.getElementById('trustNum').style.color = color;
+  const bar = document.getElementById('trustBar');
+  bar.style.background = color;
+  setTimeout(() => { bar.style.width = data.trust_score + '%'; }, 100);
+  const riskEl = document.getElementById('riskLabel');
+  riskEl.textContent = data.risk_level || '';
+  riskEl.style.color = color;
+}
+
+function renderReportCard(data, stageResults, issueText) {
   const checks = [
-    { label: 'HTTPS / SSL', pass: stageResults.ssl },
-    { label: 'Clean Domain', pass: stageResults.domain },
-    { label: 'No Phishing Words', pass: stageResults.keywords },
-    { label: 'Safe URL Pattern', pass: stageResults.pattern },
-    { label: 'AI Fraud Check', pass: stageResults.ai },
-    { label: 'No IP Address', pass: !issueText.includes('ip address') },
-    { label: 'No Free TLD', pass: !issueText.includes('tld') },
-    { label: 'No Subdomains', pass: !issueText.includes('subdomain') }
+    { label:'HTTPS / SSL',           pass: stageResults.ssl },
+    { label:'Google Safe Browsing',  pass: stageResults.gsb },
+    { label:'VirusTotal Clean',      pass: stageResults.vt },
+    { label:'No Scam Reports',       pass: stageResults.intel },
+    { label:'Clean Domain',          pass: stageResults.domain },
+    { label:'No Phishing Keywords',  pass: !issueText.includes('suspicious words') },
+    { label:'No IP Address URL',     pass: !issueText.includes('ip address') },
+    { label:'No Free TLD',           pass: !issueText.includes('tld') },
   ];
-
   document.getElementById('reportCardGrid').innerHTML = checks.map(c => `
     <div class="report-check-item ${c.pass ? 'check-pass' : 'check-fail'}">
-      <i class="bi ${c.pass ? 'bi-check-circle-fill' : 'bi-x-circle-fill'}"></i>
-      ${c.label}
+      <i class="bi ${c.pass ? 'bi-check-circle-fill' : 'bi-x-circle-fill'}"></i>${c.label}
     </div>`).join('');
-  document.getElementById('reportCard').style.display = 'block';
+}
+
+function renderIntelSection(intel) {
+  if (!intel || !intel.domain) return;
+  document.getElementById('intelCard').style.display = 'block';
+
+  // Reputation badge
+  const repColors = { Trusted:'var(--neon-green)', Suspicious:'var(--neon-yellow)',
+                      Dangerous:'var(--neon-red)', Unverified:'var(--text-muted)', Unknown:'var(--text-muted)' };
+  const rep = intel.reputation || 'Unknown';
+  const repBadge = document.getElementById('reputationBadge');
+  repBadge.textContent = rep;
+  repBadge.style.background = rep === 'Trusted' ? 'rgba(0,255,136,0.15)'
+    : rep === 'Dangerous' ? 'rgba(255,51,102,0.15)' : 'rgba(255,215,0,0.15)';
+  repBadge.style.color = repColors[rep] || 'var(--text-muted)';
+
+  // AI Summary
+  if (intel.ai_summary) {
+    document.getElementById('aiSummary').innerHTML =
+      `<div class="wiki-box"><p class="wiki-box-text"><i class="bi bi-robot me-2" style="color:var(--neon-blue);"></i>${intel.ai_summary}</p></div>`;
+  }
+
+  // VirusTotal
+  const vt = intel.virustotal || {};
+  if (vt.checked) {
+    const vtColor = vt.malicious > 0 ? 'var(--neon-red)' : vt.suspicious > 0 ? 'var(--neon-yellow)' : 'var(--neon-green)';
+    document.getElementById('vtContent').innerHTML = `
+      <div class="vt-grid">
+        <div class="vt-stat" style="border-color:var(--neon-red);"><div class="vt-num" style="color:var(--neon-red);">${vt.malicious}</div><div class="vt-label">Malicious</div></div>
+        <div class="vt-stat" style="border-color:var(--neon-yellow);"><div class="vt-num" style="color:var(--neon-yellow);">${vt.suspicious}</div><div class="vt-label">Suspicious</div></div>
+        <div class="vt-stat" style="border-color:var(--neon-green);"><div class="vt-num" style="color:var(--neon-green);">${vt.harmless}</div><div class="vt-label">Harmless</div></div>
+        <div class="vt-stat"><div class="vt-num">${vt.undetected}</div><div class="vt-label">Undetected</div></div>
+      </div>
+      ${vt.engines && vt.engines.length ? `<div class="mt-2" style="font-size:.78rem;color:var(--neon-red);">Flagged by: ${vt.engines.join(', ')}</div>` : ''}
+      ${vt.permalink ? `<a href="${vt.permalink}" target="_blank" class="google-link mt-2"><i class="bi bi-box-arrow-up-right me-1"></i>View on VirusTotal</a>` : ''}`;
+    document.getElementById('vtSection').style.display = 'block';
+  }
+
+  // Scam alerts
+  const scamResults = intel.scam_results || [];
+  if (intel.scam_alert && scamResults.length) {
+    document.getElementById('scamResults').innerHTML = scamResults.map(r => `
+      <div class="intel-result-item danger">
+        <div class="intel-result-title">${r.title || 'Report'}</div>
+        <div class="intel-result-snippet">${r.snippet}</div>
+        ${r.url ? `<a href="https://${r.url}" target="_blank" class="intel-result-link">${r.url.substring(0,50)}</a>` : ''}
+      </div>`).join('');
+    document.getElementById('scamAlertSection').style.display = 'block';
+  }
+
+  // Reddit
+  const reddit = intel.reddit_posts || [];
+  if (reddit.length) {
+    document.getElementById('redditResults').innerHTML = reddit.map(p => `
+      <div class="intel-result-item">
+        <div class="intel-result-title">${p.title}</div>
+        <div style="font-size:.72rem;color:var(--text-muted);">r/${p.subreddit} · ${p.score} upvotes</div>
+        ${p.snippet ? `<div class="intel-result-snippet">${p.snippet}</div>` : ''}
+        <a href="${p.url}" target="_blank" class="intel-result-link">View on Reddit</a>
+      </div>`).join('');
+    document.getElementById('redditSection').style.display = 'block';
+  }
+
+  // Wikipedia
+  const wiki = intel.wikipedia || {};
+  if (wiki.found) {
+    document.getElementById('wikiContent').innerHTML = `
+      <div class="wiki-box">
+        <div class="wiki-box-title"><strong>${wiki.title}</strong>
+          ${wiki.url ? `<a href="${wiki.url}" target="_blank" class="google-link ms-2" style="font-size:.72rem;"><i class="bi bi-box-arrow-up-right"></i> Wikipedia</a>` : ''}
+        </div>
+        <p class="wiki-box-text">${wiki.summary}</p>
+      </div>`;
+    document.getElementById('wikiSection').style.display = 'block';
+  }
+
+  // Web results (reviews)
+  const webRes = intel.review_results || [];
+  if (webRes.length) {
+    document.getElementById('webResults').innerHTML = webRes.map(r => `
+      <div class="intel-result-item">
+        <div class="intel-result-title">${r.title}</div>
+        <div class="intel-result-snippet">${r.snippet}</div>
+        ${r.url ? `<a href="https://${r.url}" target="_blank" class="intel-result-link">${r.url.substring(0,50)}</a>` : ''}
+      </div>`).join('');
+    document.getElementById('webSection').style.display = 'block';
+  }
 }
 
 document.getElementById('urlForm').addEventListener('submit', async function(e) {
   e.preventDefault();
   const url = document.getElementById('urlInput').value.trim();
   if (!url) return;
-  await runAnimatedScan(url);
+  await runScan(url);
 });
 </script>
 {% endblock %}

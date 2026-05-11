@@ -3,9 +3,13 @@ TrustLens AI – ai_engine.py
 NLP fraud detection: TF-IDF + Logistic Regression + keyword analysis
 Features: red flag explainer, chatbot responses
 """
-import re
+import re, os, logging
+import requests
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+
+logger = logging.getLogger(__name__)
+GSB_KEY = os.environ.get('GOOGLE_SAFE_BROWSING_KEY', '')
 
 # ── Training Data ──────────────────────────────────────────────────────────────
 JOB_TEXTS = [
@@ -191,17 +195,29 @@ def detect_fake_job(title, company, salary, description):
     if hits:
         prob = min(1.0, prob + 0.15 * len(hits))
 
+    # ── Google company verification ──
+    google_data = _google_search_company(company) if company.strip() else {"found": False, "info": "No company name provided", "url": ""}
+    if not google_data["found"] and company.strip():
+        prob = min(1.0, prob + 0.25)
+
     score = _score_from_prob(prob)
     result = "FAKE" if prob > 0.5 else "SAFE"
-    explanation = (
-        f"Suspicious keywords detected: {', '.join(hits[:5])}. High fraud probability."
-        if hits else
-        ("Job posting shows multiple fraud indicators." if result == "FAKE"
-         else "Job posting appears legitimate with no major red flags.")
-    )
+
+    if hits:
+        explanation = f"Suspicious keywords: {', '.join(hits[:5])}."
+    elif not google_data["found"] and company.strip():
+        explanation = f"Company '{company}' not found on Google. Unverified employer."
+    elif result == "FAKE":
+        explanation = "Job posting shows multiple fraud indicators."
+    else:
+        explanation = "Job posting appears legitimate with no major red flags."
+
     return {
         "result": result, "trust_score": score, "risk_level": _risk_level(score),
-        "explanation": explanation, "keywords": hits[:8], "red_flags": red_flags
+        "explanation": explanation, "keywords": hits[:8], "red_flags": red_flags,
+        "company_found": google_data["found"],
+        "google_info": google_data["info"],
+        "google_url": google_data["url"]
     }
 
 def detect_scam_message(message):
@@ -244,6 +260,14 @@ def detect_loan_app(app_name, permissions, interest_rate):
     red_flags = get_red_flags(text)
 
     fraud_score = len(hits) * 15
+
+    # ── Google Play + RBI check ──
+    google_data = _google_search_loan_app(app_name) if app_name.strip() else {"on_play_store": False, "rbi_mention": False, "info": "", "url": ""}
+    if not google_data["on_play_store"]:
+        fraud_score += 40
+    if google_data["rbi_mention"]:
+        fraud_score = max(0, fraud_score - 20)
+
     try:
         rate = float(interest_rate)
         if rate > 36:
@@ -254,27 +278,71 @@ def detect_loan_app(app_name, permissions, interest_rate):
         pass
 
     dangerous_perms = ["contacts", "sms", "camera", "location", "storage", "call logs"]
-    perm_hits = [p for p in dangerous_perms if p in permissions.lower()]
+    perm_hits = [p for p in dangerous_perms if p in str(permissions).lower()]
     fraud_score += len(perm_hits) * 8
 
     fraud_prob = min(fraud_score / 100, 1.0)
     score = _score_from_prob(fraud_prob)
     result = "FRAUDULENT" if fraud_prob > 0.5 else "SAFE"
-    explanation = (
-        f"Dangerous permissions: {', '.join(perm_hits)}. "
-        f"Suspicious indicators: {', '.join(hits[:4])}." if result == "FRAUDULENT"
-        else "Loan app appears legitimate. Interest rate and permissions seem reasonable."
-    )
+
+    issues = []
+    if not google_data["on_play_store"]:
+        issues.append(f"'{app_name}' NOT found on Google Play Store")
+    if perm_hits:
+        issues.append(f"Dangerous permissions: {', '.join(perm_hits)}")
+    if hits:
+        issues.append(f"Suspicious keywords: {', '.join(hits[:3])}")
+
+    explanation = "; ".join(issues) if issues else "Loan app appears legitimate."
+
     return {
         "result": result, "trust_score": score, "risk_level": _risk_level(score),
-        "explanation": explanation, "keywords": hits + perm_hits, "red_flags": red_flags
+        "explanation": explanation, "keywords": hits + perm_hits, "red_flags": red_flags,
+        "on_play_store": google_data["on_play_store"],
+        "rbi_mention": google_data["rbi_mention"],
+        "google_info": google_data["info"],
+        "google_url": google_data["url"]
     }
+
+def _check_google_safe_browsing(url: str) -> dict:
+    """Call Google Safe Browsing API. Returns {'safe': bool, 'threats': list}"""
+    if not GSB_KEY or GSB_KEY == 'your_google_key':
+        return {'safe': None, 'threats': []}  # not configured — skip
+    try:
+        payload = {
+            "client": {"clientId": "trustlens-ai", "clientVersion": "1.0"},
+            "threatInfo": {
+                "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE",
+                                 "POTENTIALLY_HARMFUL_APPLICATION"],
+                "platformTypes": ["ANY_PLATFORM"],
+                "threatEntryTypes": ["URL"],
+                "threatEntries": [{"url": url}]
+            }
+        }
+        r = requests.post(
+            f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={GSB_KEY}",
+            json=payload, timeout=5)
+        data = r.json()
+        threats = [m['threatType'] for m in data.get('matches', [])]
+        return {'safe': len(threats) == 0, 'threats': threats}
+    except Exception as e:
+        logger.warning("GSB API error: %s", e)
+        return {'safe': None, 'threats': []}
 
 def scan_website(url):
     url_lower = url.lower()
     issues = []
     fraud_score = 0
 
+    # ── Google Safe Browsing ──
+    gsb = _check_google_safe_browsing(url)
+    gsb_checked = gsb['safe'] is not None
+    if gsb['threats']:
+        for t in gsb['threats']:
+            issues.append(f"Google Safe Browsing: {t.replace('_', ' ').title()} detected")
+        fraud_score += 80
+
+    # ── Local heuristic checks ──
     if not url_lower.startswith("https://"):
         issues.append("No HTTPS (insecure connection)")
         fraud_score += 30
@@ -298,9 +366,23 @@ def scan_website(url):
         issues.append("Free/suspicious TLD detected")
         fraud_score += 25
 
-    if re.search(r'[^\w\-./:]', url.split('//')[-1].split('/')[0]):
-        issues.append("Special characters in domain")
-        fraud_score += 20
+    # ── Google Intelligence ──
+    try:
+        from intel_engine import fetch_website_intelligence
+        intel = fetch_website_intelligence(url)
+    except Exception as e:
+        logger.warning("Intel engine error: %s", e)
+        intel = None
+
+    # Apply intel score adjustment
+    if intel:
+        adj = intel.get("intel_score_adj", 0)
+        if adj < 0:
+            fraud_score += abs(adj)   # more dangerous
+        else:
+            fraud_score = max(0, fraud_score - adj)  # safer
+        if intel.get("scam_alert"):
+            issues.append("Google Intelligence: Scam/fraud reports found online")
 
     fraud_prob = min(fraud_score / 100, 1.0)
     score = _score_from_prob(fraud_prob)
@@ -312,13 +394,15 @@ def scan_website(url):
     else:
         result = "DANGEROUS"
 
-    explanation = (
-        "; ".join(issues) if issues
-        else "URL appears safe. HTTPS present, no suspicious patterns detected."
-    )
+    explanation = "; ".join(issues) if issues else "URL appears safe. No threats detected."
+    if gsb_checked and not gsb['threats']:
+        explanation = "✓ Google Safe Browsing: Clean. " + explanation
+
     return {
         "result": result, "trust_score": score, "risk_level": _risk_level(score),
-        "explanation": explanation, "issues": issues
+        "explanation": explanation, "issues": issues,
+        "gsb_checked": gsb_checked,
+        "intel": intel
     }
 
 # ── Chatbot Response Engine ────────────────────────────────────────────────────
@@ -387,3 +471,263 @@ def get_chatbot_response(user_message):
             "• 'Is this website safe?'\n"
             "• 'What is an OTP scam?'\n"
             "• 'How to report fraud?'")
+
+
+# ── QR Scam Scanner ────────────────────────────────────────────────────────────
+def scan_qr_image(image_path: str) -> dict:
+    """Analyze a QR code image for UPI/payment fraud."""
+    import re
+    try:
+        from PIL import Image
+        img = Image.open(image_path)
+        # Try to decode QR using pillow-based approach
+        try:
+            import zxingcpp
+            results = zxingcpp.read_barcodes(img)
+            qr_text = results[0].text if results else ""
+        except Exception:
+            qr_text = ""
+    except Exception:
+        qr_text = ""
+
+    if not qr_text:
+        return {
+            "result": "UNREADABLE", "trust_score": 50,
+            "risk_level": "Unknown", "qr_text": "",
+            "explanation": "Could not decode QR code. Ensure image is clear.",
+            "issues": [], "red_flags": []
+        }
+
+    return scan_qr_text(qr_text)
+
+def scan_qr_text(qr_text: str) -> dict:
+    """Analyze decoded QR text for UPI fraud indicators."""
+    issues = []
+    fraud_score = 0
+    text_lower = qr_text.lower()
+
+    # UPI ID checks
+    upi_match = re.search(r'pa=([^&]+)', qr_text)
+    upi_id = upi_match.group(1) if upi_match else ""
+
+    suspicious_upi_words = ["lottery", "prize", "win", "free", "gift", "reward",
+                             "lucky", "claim", "bonus", "offer", "cashback100"]
+    for word in suspicious_upi_words:
+        if word in text_lower:
+            issues.append(f"Suspicious keyword in QR: '{word}'")
+            fraud_score += 25
+
+    # Check for amount pre-filled (scam tactic)
+    if "am=" in qr_text or "amount=" in qr_text.lower():
+        issues.append("Pre-filled amount detected — scammers pre-fill amounts")
+        fraud_score += 20
+
+    # Check for unknown/suspicious UPI handles
+    suspicious_handles = [".xyz", ".tk", ".ml", "hack", "scam", "fake"]
+    for h in suspicious_handles:
+        if h in upi_id.lower():
+            issues.append(f"Suspicious UPI handle: {upi_id}")
+            fraud_score += 40
+
+    # Non-UPI QR with payment keywords
+    if "upi://" not in text_lower and any(w in text_lower for w in ["pay", "payment", "transfer"]):
+        issues.append("Non-standard payment QR format")
+        fraud_score += 15
+
+    fraud_prob = min(fraud_score / 100, 1.0)
+    score = _score_from_prob(fraud_prob)
+    result = "DANGEROUS" if fraud_prob > 0.5 else ("SUSPICIOUS" if fraud_prob > 0.2 else "SAFE")
+
+    return {
+        "result": result,
+        "trust_score": score,
+        "risk_level": _risk_level(score),
+        "qr_text": qr_text[:300],
+        "upi_id": upi_id,
+        "explanation": "; ".join(issues) if issues else "QR code appears safe. No fraud indicators found.",
+        "issues": issues,
+        "red_flags": get_red_flags(qr_text)
+    }
+
+# ── App Permission Analyzer ────────────────────────────────────────────────────
+DANGEROUS_PERMISSIONS = {
+    "READ_CONTACTS":        ("Reads your contact list", "HIGH"),
+    "READ_SMS":             ("Reads all your SMS messages", "CRITICAL"),
+    "SEND_SMS":             ("Can send SMS on your behalf", "CRITICAL"),
+    "READ_CALL_LOG":        ("Reads your call history", "HIGH"),
+    "RECORD_AUDIO":         ("Can record audio/calls", "CRITICAL"),
+    "ACCESS_FINE_LOCATION": ("Tracks your exact GPS location", "HIGH"),
+    "CAMERA":               ("Access to camera", "MEDIUM"),
+    "READ_EXTERNAL_STORAGE":("Reads all files on device", "MEDIUM"),
+    "WRITE_EXTERNAL_STORAGE":("Writes/deletes files on device", "MEDIUM"),
+    "GET_ACCOUNTS":         ("Access to all device accounts", "HIGH"),
+    "USE_BIOMETRIC":        ("Access to fingerprint/face data", "HIGH"),
+    "PROCESS_OUTGOING_CALLS":("Intercepts outgoing calls", "CRITICAL"),
+    "RECEIVE_BOOT_COMPLETED":("Auto-starts on device boot", "MEDIUM"),
+    "REQUEST_INSTALL_PACKAGES":("Can install other apps silently", "CRITICAL"),
+    "SYSTEM_ALERT_WINDOW":  ("Can overlay on other apps (screen overlay)", "HIGH"),
+}
+
+def _google_search_company(company_name: str) -> dict:
+    """Check if a company exists via Google search (Play Store + web)."""
+    result = {"found": False, "info": "", "url": ""}
+    if not company_name or len(company_name.strip()) < 3:
+        return result
+    try:
+        query = company_name.strip().replace(' ', '+')
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(
+            f"https://www.google.com/search?q={query}+company+india+reviews",
+            headers=headers, timeout=6)
+        if r.status_code == 200:
+            content = r.text.lower()
+            name_words = [w for w in company_name.lower().split() if len(w) > 3]
+            matches = sum(1 for w in name_words if w in content)
+            if matches >= max(1, len(name_words) * 0.5):
+                result["found"] = True
+                result["info"] = f"'{company_name}' found in Google search results"
+            else:
+                result["info"] = f"'{company_name}' not prominently found on Google"
+            result["url"] = f"https://www.google.com/search?q={query}"
+    except Exception as e:
+        logger.warning("Google company lookup error: %s", e)
+        result["info"] = "Could not verify company with Google"
+    return result
+
+
+def _google_search_loan_app(app_name: str) -> dict:
+    """Check loan app on Google Play Store and RBI list."""
+    result = {"on_play_store": False, "rbi_mention": False, "info": "", "url": ""}
+    if not app_name or len(app_name.strip()) < 2:
+        return result
+    try:
+        query = app_name.strip().replace(' ', '+')
+        headers = {"User-Agent": "Mozilla/5.0 (Android 13; Mobile) AppleWebKit/537.36"}
+        # Check Play Store
+        r = requests.get(
+            f"https://play.google.com/store/search?q={query}&c=apps",
+            headers=headers, timeout=6)
+        if r.status_code == 200:
+            content = r.text.lower()
+            name_words = [w for w in app_name.lower().split() if len(w) > 3]
+            matches = sum(1 for w in name_words if w in content)
+            if matches >= max(1, len(name_words) * 0.5):
+                result["on_play_store"] = True
+        # Check RBI mention via Google
+        r2 = requests.get(
+            f"https://www.google.com/search?q={query}+RBI+registered+NBFC+loan+app",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+        if r2.status_code == 200:
+            c2 = r2.text.lower()
+            if "rbi" in c2 and app_name.lower().split()[0] in c2:
+                result["rbi_mention"] = True
+        result["url"] = f"https://play.google.com/store/search?q={query}&c=apps"
+        parts = []
+        if result["on_play_store"]:
+            parts.append("Found on Google Play Store")
+        else:
+            parts.append("NOT found on Google Play Store")
+        if result["rbi_mention"]:
+            parts.append("RBI/NBFC mention found")
+        result["info"] = " · ".join(parts)
+    except Exception as e:
+        logger.warning("Google loan app lookup error: %s", e)
+        result["info"] = "Could not verify with Google"
+    return result
+    """
+    Search Google for app info using Custom Search or scrape-free approach.
+    Uses Google Safe Browsing + a simple requests check on Play Store URL.
+    Returns: {found, play_store_url, rating, installs, developer, is_on_play_store}
+    """
+    result = {"found": False, "play_store_url": "", "developer": "",
+              "is_on_play_store": False, "google_info": ""}
+    try:
+        # Check if app exists on Google Play Store
+        search_name = app_name.lower().replace(' ', '+').replace('-', '+')
+        play_url = f"https://play.google.com/store/search?q={search_name}&c=apps"
+        headers = {"User-Agent": "Mozilla/5.0 (Android 13; Mobile) AppleWebKit/537.36"}
+        r = requests.get(play_url, headers=headers, timeout=6)
+        if r.status_code == 200:
+            content = r.text.lower()
+            # Check if app name appears in Play Store results
+            name_words = [w for w in app_name.lower().split() if len(w) > 3]
+            matches = sum(1 for w in name_words if w in content)
+            if matches >= len(name_words) * 0.6:
+                result["is_on_play_store"] = True
+                result["found"] = True
+                result["play_store_url"] = play_url
+                result["google_info"] = "Found on Google Play Store"
+            else:
+                result["google_info"] = "Not found on Google Play Store"
+    except Exception as e:
+        logger.warning("Google app lookup error: %s", e)
+        result["google_info"] = "Could not verify with Google"
+    return result
+
+def analyze_app_permissions(app_name: str, permissions: list, store_rating: float = 0, installs: str = "") -> dict:
+    """Analyze Android app permissions + Google Play Store verification."""
+    issues = []
+    fraud_score = 0
+    perm_details = []
+
+    # ── Google Play Store check ──
+    google_data = _google_search_app(app_name)
+    if not google_data["is_on_play_store"]:
+        fraud_score += 45
+        issues.append("App NOT found on Google Play Store — high fraud risk")
+    else:
+        issues_info = [f"Verified on Google Play Store"]
+
+    # ── Permission analysis ──
+    for perm in permissions:
+        perm_upper = perm.upper().replace("ANDROID.PERMISSION.", "")
+        if perm_upper in DANGEROUS_PERMISSIONS:
+            desc, severity = DANGEROUS_PERMISSIONS[perm_upper]
+            perm_details.append({"permission": perm_upper, "description": desc, "severity": severity})
+            if severity == "CRITICAL":
+                fraud_score += 25
+                issues.append(f"CRITICAL permission: {perm_upper} — {desc}")
+            elif severity == "HIGH":
+                fraud_score += 15
+            elif severity == "MEDIUM":
+                fraud_score += 8
+
+    # ── Low rating penalty ──
+    try:
+        rating = float(store_rating)
+        if 0 < rating < 3.0:
+            fraud_score += 20
+            issues.append(f"Low store rating: {rating}/5")
+    except (ValueError, TypeError):
+        pass
+
+    # ── Loan scam keyword check ──
+    hits = _keyword_hits(app_name, LOAN_SCAM_KEYWORDS)
+    if hits:
+        fraud_score += len(hits) * 15
+        issues.append(f"Suspicious keywords in app name: {', '.join(hits)}")
+
+    fraud_prob = min(fraud_score / 100, 1.0)
+    score = _score_from_prob(fraud_prob)
+
+    if fraud_prob > 0.6:
+        result = "FRAUDULENT"
+    elif fraud_prob > 0.3:
+        result = "SUSPICIOUS"
+    else:
+        result = "SAFE"
+
+    explanation = "; ".join(issues[:4]) if issues else "App appears legitimate and found on Google Play Store."
+
+    return {
+        "result": result,
+        "trust_score": score,
+        "risk_level": _risk_level(score),
+        "explanation": explanation,
+        "permission_details": perm_details,
+        "dangerous_count": len([p for p in perm_details if p['severity'] in ('CRITICAL', 'HIGH')]),
+        "is_on_play_store": google_data["is_on_play_store"],
+        "google_info": google_data["google_info"],
+        "play_store_url": google_data["play_store_url"],
+        "red_flags": get_red_flags(app_name + " " + " ".join(permissions))
+    }

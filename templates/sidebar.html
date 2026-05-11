@@ -31,6 +31,12 @@
   <a href="{{ url_for('website_scanner') }}" class="sidebar-link {% if request.endpoint == 'website_scanner' %}active{% endif %}">
     <i class="bi bi-globe2"></i> Website Scanner
   </a>
+  <a href="{{ url_for('qr_scanner') }}" class="sidebar-link {% if request.endpoint == 'qr_scanner' %}active{% endif %}">
+    <i class="bi bi-qr-code-scan"></i> QR Scanner
+  </a>
+  <a href="{{ url_for('app_analyzer') }}" class="sidebar-link {% if request.endpoint == 'app_analyzer' %}active{% endif %}">
+    <i class="bi bi-phone-fill"></i> App Analyzer
+  </a>
 
   <div class="mb-2 mt-3 px-2">
     <small style="font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Community</small>
