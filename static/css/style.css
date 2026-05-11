@@ -349,6 +349,7 @@ textarea.form-control { resize: vertical; min-height: 120px; }
     transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
     width: min(300px, 92vw);
     padding-top: max(22px, env(safe-area-inset-top));
+    z-index: 1090;
   }
   .sidebar.open {
     transform: translateX(0);
@@ -358,8 +359,22 @@ textarea.form-control { resize: vertical; min-height: 120px; }
     margin-left: 0 !important;
     width: 100% !important;
   }
-  .main-content, .scan-layout { margin-left: 0 !important; padding: 60px 14px 20px !important; }
-  .sidebar-toggle { display: flex; }
+  .main-content, .scan-layout {
+    margin-left: 0 !important;
+    /* Top: clear status bar + header row; right: reserve space for fixed menu (FAB stays bottom-right) */
+    padding-top: max(52px, calc(env(safe-area-inset-top) + 44px)) !important;
+    padding-right: calc(14px + 52px + env(safe-area-inset-right)) !important;
+    padding-bottom: 20px !important;
+    padding-left: calc(14px + env(safe-area-inset-left)) !important;
+  }
+  .sidebar-toggle {
+    display: flex;
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    right: max(10px, env(safe-area-inset-right));
+    left: auto;
+    z-index: 1100;
+  }
   .hero-title { font-size: 2rem; }
   .chatbot-window { width: calc(100vw - 24px); right: 12px; bottom: 90px; }
   .chatbot-fab { bottom: 20px; right: 16px; width: 52px; height: 52px; font-size: 1.3rem; }
@@ -378,7 +393,12 @@ textarea.form-control { resize: vertical; min-height: 120px; }
 }
 @media (max-width: 400px) {
   .col-6 { flex: 0 0 100%; max-width: 100%; }
-  .main-content, .scan-layout { padding: 56px 10px 16px !important; }
+  .main-content, .scan-layout {
+    padding-top: max(48px, calc(env(safe-area-inset-top) + 40px)) !important;
+    padding-right: calc(10px + 50px + env(safe-area-inset-right)) !important;
+    padding-bottom: 16px !important;
+    padding-left: calc(10px + env(safe-area-inset-left)) !important;
+  }
 }
 
 /* ── Neon glow effects ── */
@@ -776,25 +796,25 @@ textarea.form-control { resize: vertical; min-height: 120px; }
 .check-fail { background: rgba(255,51,102,0.08); color: var(--neon-red); border: 1px solid rgba(255,51,102,.15); }
 .check-warn { background: rgba(255,215,0,0.08); color: var(--neon-yellow); border: 1px solid rgba(255,215,0,.15); }
 
-/* ── Responsive sidebar toggle ────────────────────────────────────────────────── */
+/* ── Responsive sidebar toggle (mobile only — position/z-index set in @media max-width 768px) ── */
 .sidebar-toggle {
   display: none;
-  position: fixed;
-  top: max(16px, env(safe-area-inset-top));
-  left: max(16px, env(safe-area-inset-left));
-  z-index: 200;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 12px;
   background: var(--sidebar-bg);
   border: 1px solid rgba(0, 212, 255, 0.28);
   color: var(--neon-blue);
-  font-size: 1.25rem;
+  font-size: 1.35rem;
+  line-height: 1;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   transition: background 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .sidebar-toggle:hover {
   background: #0e1524;

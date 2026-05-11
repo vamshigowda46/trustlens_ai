@@ -67,7 +67,8 @@
   </div>
 </div>
 
-<!-- Mobile toggle -->
-<button class="sidebar-toggle" id="sidebarToggle" onclick="document.getElementById('sidebar').classList.toggle('open')">
-  <i class="bi bi-list"></i>
+<!-- Mobile menu (fixed top-right; z-index in CSS above maps/charts) -->
+<button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Open navigation menu"
+        onclick="document.getElementById('sidebar').classList.toggle('open')">
+  <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
 </button>
