@@ -120,6 +120,9 @@ def security_headers(response):
 
 # ── Public Routes ──────────────────────────────────────────────────────────────
 @app.route('/')
+def home():
+    return render_template('index.html')
+@app.route('/')
 def index():
     # Authenticated users should always land on the main dashboard.
     if 'user_id' in session:
