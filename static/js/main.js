@@ -209,10 +209,18 @@ function renderResult(data) {
   renderKeywords(data.keywords || []);
 }
 
-// ── Chatbot ────────────────────────────────────────────────────────────────────
+// ── Chatbot (Grok API via server + DB threads) ───────────────────────────────
 const CHAT_STORAGE_KEY = 'trustlens_chat_turns_v1';
+const CHAT_CONV_STORAGE = 'trustlens_chat_conversation_id_v1';
 let chatOpen = false;
 let voiceRecognition = null;
+let currentConversationId = null;
+let chatShellReady = false;
+
+function getCsrfToken() {
+  const m = document.querySelector('meta[name="csrf-token"]');
+  return m ? m.getAttribute('content') || '' : '';
+}
 
 function escapeChatHtml(s) {
   return String(s == null ? '' : s)
@@ -229,20 +237,396 @@ function formatBotMessageHtml(text) {
     .replace(/\n/g, '<br>');
 }
 
-function loadChatTurns() {
-  try {
-    const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch (e) {
-    return [];
+function renderMarkdownToSafeHtml(text) {
+  const raw = String(text || '');
+  if (window.marked && window.DOMPurify) {
+    try {
+      let dirty;
+      if (typeof marked.parse === 'function') {
+        dirty = marked.parse(raw, { breaks: true, headerIds: false });
+      } else if (typeof marked === 'function') {
+        dirty = marked(raw, { breaks: true });
+      } else {
+        dirty = raw;
+      }
+      return DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } });
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  return formatBotMessageHtml(raw);
+}
+
+function trustPillClass(score) {
+  const n = Number(score) || 0;
+  if (n >= 70) return 'chat-trust-pill';
+  if (n >= 45) return 'chat-trust-pill warn';
+  return 'chat-trust-pill bad';
+}
+
+function chatScrollToBottom() {
+  const messages = document.getElementById('chatMessages');
+  if (!messages) return;
+  requestAnimationFrame(() => {
+    messages.scrollTop = messages.scrollHeight;
+  });
+}
+
+function appendUserMessage(text) {
+  const messages = document.getElementById('chatMessages');
+  if (!messages) return;
+  const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-msg-wrap user-align';
+  wrap.innerHTML = `
+    <div class="chat-msg user"></div>
+    <div class="chat-msg-meta"><span class="chat-msg-ts">${escapeChatHtml(ts)}</span></div>`;
+  wrap.querySelector('.chat-msg').textContent = text;
+  messages.appendChild(wrap);
+  chatScrollToBottom();
+}
+
+function appendBotShell() {
+  const messages = document.getElementById('chatMessages');
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-msg-wrap';
+  const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  wrap.innerHTML = `
+    <div class="chat-msg bot typing-reveal"></div>
+    <div class="chat-msg-meta">
+      <span class="chat-msg-ts">${escapeChatHtml(ts)}</span>
+      <span class="chat-trust-meta"></span>
+      <div class="chat-msg-actions">
+        <button type="button" class="js-chat-copy">Copy</button>
+      </div>
+    </div>`;
+  messages.appendChild(wrap);
+  chatScrollToBottom();
+  return wrap;
+}
+
+function wireCopyButton(wrap, plainText) {
+  const btn = wrap.querySelector('.js-chat-copy');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(plainText || '');
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
+    } catch (e) {
+      btn.textContent = 'Copy failed';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
+    }
+  });
+}
+
+function setTypingIndicator(show) {
+  const messages = document.getElementById('chatMessages');
+  if (!messages) return;
+  let el = document.getElementById('typingIndicator');
+  if (show) {
+    if (el) return;
+    el = document.createElement('div');
+    el.id = 'typingIndicator';
+    el.className = 'chat-typing';
+    el.innerHTML = '<span></span><span></span><span></span>';
+    messages.appendChild(el);
+    chatScrollToBottom();
+  } else if (el) {
+    el.remove();
   }
 }
 
-function saveChatTurns(turns) {
+async function chatApi(path, options = {}) {
+  const headers = Object.assign(
+    { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+    options.headers || {}
+  );
+  const res = await fetch(path, Object.assign({}, options, { headers }));
+  return res;
+}
+
+async function refreshThreadList() {
+  const list = document.getElementById('chatThreadList');
+  if (!list) return;
   try {
-    sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(turns.slice(-6)));
-  } catch (e) { /* quota */ }
+    const res = await chatApi('/api/chat/conversations', { method: 'GET' });
+    const data = await res.json().catch(() => ({}));
+    const rows = data.conversations || [];
+    list.innerHTML = '';
+    rows.forEach((c) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chat-thread-item' + (Number(c.id) === Number(currentConversationId) ? ' active' : '');
+      b.textContent = c.title || ('Chat ' + c.id);
+      b.dataset.id = String(c.id);
+      b.addEventListener('click', () => selectConversation(Number(c.id)));
+      list.appendChild(b);
+    });
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+async function ensureConversation() {
+  if (currentConversationId) return currentConversationId;
+  const res = await chatApi('/api/chat/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ title: 'New chat' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.id) {
+    throw new Error(data.error || 'Could not start chat');
+  }
+  currentConversationId = data.id;
+  try {
+    sessionStorage.setItem(CHAT_CONV_STORAGE, String(currentConversationId));
+  } catch (e) { /* */ }
+  await refreshThreadList();
+  return currentConversationId;
+}
+
+async function selectConversation(cid) {
+  currentConversationId = cid;
+  try {
+    sessionStorage.setItem(CHAT_CONV_STORAGE, String(cid));
+  } catch (e) { /* */ }
+  await refreshThreadList();
+  const messages = document.getElementById('chatMessages');
+  if (!messages) return;
+  messages.innerHTML = '';
+  const res = await chatApi(`/api/chat/conversations/${cid}/messages`, { method: 'GET' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    messages.innerHTML = '<div class="chat-msg bot">Could not load messages.</div>';
+    return;
+  }
+  const list = data.messages || [];
+  if (!list.length) {
+    messages.innerHTML = `
+      <div class="chat-msg-wrap">
+        <div class="chat-msg bot">
+          <p><strong>New chat</strong> — ask about scams, URLs, or jobs.</p>
+        </div>
+        <div class="chat-msg-meta"><span class="chat-msg-ts">now</span></div>
+      </div>`;
+    return;
+  }
+  list.forEach((m) => {
+    const role = m.role;
+    const content = m.content || '';
+    const ts = m.created_at ? String(m.created_at).slice(11, 16) : '';
+    if (role === 'user') {
+      appendUserMessage(content);
+      return;
+    }
+    if (role !== 'assistant') return;
+    let meta = {};
+    try {
+      meta = m.meta ? JSON.parse(m.meta) : {};
+    } catch (e) {
+      meta = {};
+    }
+    const wrap = appendBotShell();
+    const bubble = wrap.querySelector('.chat-msg');
+    bubble.innerHTML = renderMarkdownToSafeHtml(content);
+    const pillHost = wrap.querySelector('.chat-trust-meta');
+    if (pillHost && meta.trust_score != null) {
+      const span = document.createElement('span');
+      span.className = trustPillClass(meta.trust_score);
+      span.textContent = `Trust ${meta.trust_score}/100`;
+      pillHost.appendChild(span);
+    }
+    wireCopyButton(wrap, content);
+  });
+  chatScrollToBottom();
+}
+
+async function initTrustLensChat() {
+  if (chatShellReady) return;
+  chatShellReady = true;
+  try {
+    const saved = sessionStorage.getItem(CHAT_CONV_STORAGE);
+    if (saved) currentConversationId = Number(saved);
+  } catch (e) { /* */ }
+
+  document.getElementById('chatNewThread')?.addEventListener('click', async () => {
+    currentConversationId = null;
+    try {
+      sessionStorage.removeItem(CHAT_CONV_STORAGE);
+    } catch (e) { /* */ }
+    const cid = await ensureConversation();
+    const messages = document.getElementById('chatMessages');
+    if (messages) messages.innerHTML = '';
+    await selectConversation(cid);
+  });
+
+  document.getElementById('chatClearBtn')?.addEventListener('click', async () => {
+    if (!currentConversationId) return;
+    if (!confirm('Delete this conversation?')) return;
+    const res = await chatApi(`/api/chat/conversations/${currentConversationId}`, { method: 'DELETE' });
+    if (!res.ok) return;
+    currentConversationId = null;
+    try {
+      sessionStorage.removeItem(CHAT_CONV_STORAGE);
+    } catch (e) { /* */ }
+    await refreshThreadList();
+    const messages = document.getElementById('chatMessages');
+    if (messages) messages.innerHTML = '';
+    await ensureConversation();
+    if (currentConversationId) await selectConversation(currentConversationId);
+  });
+
+  document.getElementById('chatRegenerateBtn')?.addEventListener('click', () => {
+    sendChat({ regenerate: true });
+  });
+
+  await refreshThreadList();
+  let rows = [];
+  try {
+    const r = await chatApi('/api/chat/conversations', { method: 'GET' });
+    const d = await r.json();
+    rows = d.conversations || [];
+  } catch (e) { /* */ }
+
+  if (rows.length === 0) {
+    await ensureConversation();
+  } else if (!currentConversationId || !rows.some((x) => Number(x.id) === Number(currentConversationId))) {
+    currentConversationId = rows[0].id;
+    try {
+      sessionStorage.setItem(CHAT_CONV_STORAGE, String(currentConversationId));
+    } catch (e) { /* */ }
+  }
+  if (currentConversationId) {
+    await selectConversation(currentConversationId);
+  }
+}
+
+function toggleChat() {
+  chatOpen = !chatOpen;
+  const win = document.getElementById('chatWindow');
+  const icon = document.getElementById('chatFabIcon');
+  if (!win) return;
+  if (chatOpen) {
+    win.style.display = 'flex';
+    if (icon) icon.className = 'bi bi-x-lg';
+    initTrustLensChat().catch(() => {});
+    document.getElementById('chatInput')?.focus();
+  } else {
+    win.style.display = 'none';
+    if (icon) icon.className = 'bi bi-robot';
+    stopVoiceInput();
+  }
+}
+
+function sendQuick(msg) {
+  const input = document.getElementById('chatInput');
+  if (input) {
+    input.value = msg;
+    sendChat();
+  }
+}
+
+async function sendChat(opts) {
+  const options = opts || {};
+  const input = document.getElementById('chatInput');
+  const messages = document.getElementById('chatMessages');
+  if (!input || !messages) return;
+
+  if (!getCsrfToken()) {
+    alert('Security token missing — please refresh the page after login.');
+    return;
+  }
+
+  const regenerate = !!options.regenerate;
+  let msg = (input.value || '').trim();
+  if (!regenerate && !msg) return;
+
+  const quickBtns = document.getElementById('quickBtns');
+  if (quickBtns) quickBtns.style.display = 'none';
+
+  if (!regenerate) {
+    input.value = '';
+    input.style.height = 'auto';
+    appendUserMessage(msg);
+  }
+
+  setTypingIndicator(true);
+
+  let priorTurns = [];
+  try {
+    const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+    const arr = JSON.parse(raw);
+    priorTurns = Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    priorTurns = [];
+  }
+  const historyPayload = priorTurns.slice(-3);
+
+  try {
+    await ensureConversation();
+    const res = await chatApi('/api/chatbot', {
+      method: 'POST',
+      body: JSON.stringify({
+        message: msg,
+        history: historyPayload,
+        conversation_id: currentConversationId,
+        regenerate,
+      }),
+    });
+
+    setTypingIndicator(false);
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errText = data.error || data.response || `Request failed (${res.status})`;
+      const wrap = appendBotShell();
+      wrap.querySelector('.chat-msg').textContent = errText;
+      await refreshThreadList();
+      chatScrollToBottom();
+      return;
+    }
+
+    let responseText = data.response || 'Sorry, I could not process that.';
+    const meta = data.meta || {};
+    if (data.conversation_id) {
+      currentConversationId = data.conversation_id;
+      try {
+        sessionStorage.setItem(CHAT_CONV_STORAGE, String(currentConversationId));
+      } catch (e) { /* */ }
+    }
+
+    if (!regenerate) {
+      priorTurns.push({ user: msg, bot: responseText });
+      try {
+        sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(priorTurns.slice(-6)));
+      } catch (e) { /* */ }
+    } else {
+      const botNodes = messages.querySelectorAll('.chat-msg-wrap .chat-msg.bot');
+      const lastBot = botNodes[botNodes.length - 1];
+      const wrap = lastBot ? lastBot.closest('.chat-msg-wrap') : null;
+      wrap?.remove();
+    }
+
+    const wrap = appendBotShell();
+    const bubble = wrap.querySelector('.chat-msg');
+    bubble.innerHTML = renderMarkdownToSafeHtml(responseText);
+    const pillHost = wrap.querySelector('.chat-trust-meta');
+    if (pillHost && meta.trust_score != null) {
+      const span = document.createElement('span');
+      span.className = trustPillClass(meta.trust_score);
+      span.textContent = `Trust ${meta.trust_score}/100`;
+      pillHost.appendChild(span);
+    }
+    wireCopyButton(wrap, responseText);
+    await refreshThreadList();
+  } catch (e) {
+    setTypingIndicator(false);
+    const wrap = appendBotShell();
+    wrap.querySelector('.chat-msg').textContent = 'Connection error. Please try again.';
+  }
+
+  chatScrollToBottom();
 }
 
 function getSpeechRecognitionCtor() {
@@ -308,94 +692,6 @@ function toggleVoiceChat() {
   } catch (e) {
     stopVoiceInput();
   }
-}
-
-function toggleChat() {
-  chatOpen = !chatOpen;
-  const win = document.getElementById('chatWindow');
-  const icon = document.getElementById('chatFabIcon');
-  if (!win) return;
-  if (chatOpen) {
-    win.style.display = 'flex';
-    if (icon) icon.className = 'bi bi-x-lg';
-    document.getElementById('chatInput')?.focus();
-  } else {
-    win.style.display = 'none';
-    if (icon) icon.className = 'bi bi-robot';
-    stopVoiceInput();
-  }
-}
-
-function sendQuick(msg) {
-  const input = document.getElementById('chatInput');
-  if (input) {
-    input.value = msg;
-    sendChat();
-  }
-}
-
-async function sendChat() {
-  const input = document.getElementById('chatInput');
-  const messages = document.getElementById('chatMessages');
-  if (!input || !messages) return;
-
-  const msg = (input.value || '').trim();
-  if (!msg) return;
-  input.value = '';
-  input.style.height = 'auto';
-
-  const quickBtns = document.getElementById('quickBtns');
-  if (quickBtns) quickBtns.style.display = 'none';
-
-  const userDiv = document.createElement('div');
-  userDiv.className = 'chat-msg user';
-  userDiv.textContent = msg;
-  messages.appendChild(userDiv);
-  messages.scrollTop = messages.scrollHeight;
-
-  const typing = document.createElement('div');
-  typing.className = 'chat-typing';
-  typing.id = 'typingIndicator';
-  typing.innerHTML = '<span></span><span></span><span></span>';
-  messages.appendChild(typing);
-  messages.scrollTop = messages.scrollHeight;
-
-  const priorTurns = loadChatTurns();
-  const historyPayload = priorTurns.slice(-3);
-
-  try {
-    const res = await fetch('/api/chatbot', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, history: historyPayload })
-    });
-
-    const t = document.getElementById('typingIndicator');
-    if (t) t.remove();
-
-    let responseText = 'Sorry, I could not process that.';
-    try {
-      const data = await res.json();
-      responseText = data.response || responseText;
-    } catch (e) { /* */ }
-
-    priorTurns.push({ user: msg, bot: responseText });
-    saveChatTurns(priorTurns);
-
-    const botDiv = document.createElement('div');
-    botDiv.className = 'chat-msg bot typing-reveal';
-    botDiv.innerHTML = formatBotMessageHtml(responseText);
-    messages.appendChild(botDiv);
-  } catch (e) {
-    const t = document.getElementById('typingIndicator');
-    if (t) t.remove();
-    const errDiv = document.createElement('div');
-    errDiv.className = 'chat-msg bot typing-reveal';
-    errDiv.textContent = 'Connection error. Please check your internet and try again.';
-    messages.appendChild(errDiv);
-  }
-
-  messages.scrollTop = messages.scrollHeight;
 }
 
 // ── DOMContentLoaded ───────────────────────────────────────────────────────────

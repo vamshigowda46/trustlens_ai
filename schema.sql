@@ -53,6 +53,25 @@ CREATE TABLE IF NOT EXISTS chatbot_logs (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    title VARCHAR(200) NOT NULL DEFAULT 'New chat',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_chat_user_updated (user_id, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    role ENUM('user','assistant','system') NOT NULL,
+    content MEDIUMTEXT NOT NULL,
+    meta TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_chat_msg_conv (conversation_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 INSERT IGNORE INTO verified_companies (company_name, app_name, website, type, regulator) VALUES
 ('State Bank of India', 'YONO SBI', 'sbi.co.in', 'bank', 'RBI'),
 ('HDFC Bank', 'HDFC Bank MobileBanking', 'hdfcbank.com', 'bank', 'RBI'),
