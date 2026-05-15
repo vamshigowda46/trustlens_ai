@@ -1,17 +1,20 @@
 """
 TrustLens AI – app.py
 """
-import os, logging
+import os,logging
+
+import secrets
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from flask_mysqldb import MySQL
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+#from flask_limiter import Limiter
+#from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
 import ai_engine, verifier, threat_intel
+from services import chat_service, chat_store
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -39,9 +42,18 @@ app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
 
 mysql = MySQL(app)
 
+_CHAT_SCHEMA_READY = False
+
+
+@app.before_request
+def _ensure_session_csrf():
+    if "user_id" in session and not session.get("csrf_token"):
+        session["csrf_token"] = secrets.token_hex(32)
+
+
 # ── Rate Limiter ───────────────────────────────────────────────────────────────
-limiter = Limiter(get_remote_address, app=app, default_limits=["200 per day", "60 per hour"],
-                  storage_uri="memory://")
+# limiter = Limiter(get_remote_address, app=app, default_limits=["200 per day", "60 per hour"],
+                #  storage_uri="memory://")
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -59,6 +71,29 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
+
+
+def _require_chat_csrf():
+    """JSON chat APIs require X-CSRF-Token matching session (double-submit)."""
+    if request.headers.get("X-CSRF-Token", "") != session.get("csrf_token"):
+        return jsonify({"error": "CSRF validation failed", "code": "csrf"}), 403
+    return None
+
+
+def _ensure_chat_schema():
+    global _CHAT_SCHEMA_READY
+    if _CHAT_SCHEMA_READY:
+        return
+    try:
+        cur = mysql.connection.cursor()
+        chat_store.ensure_schema(cur)
+        mysql.connection.commit()
+        cur.close()
+        _CHAT_SCHEMA_READY = True
+    except Exception as e:
+        logger.warning("Chat schema init failed (conversations may be unavailable): %s", e)
+        _CHAT_SCHEMA_READY = True
+
 
 def save_scan(user_id, scan_type, input_text, result, trust_score, explanation):
     try:
@@ -120,9 +155,6 @@ def security_headers(response):
 
 # ── Public Routes ──────────────────────────────────────────────────────────────
 @app.route('/')
-def home():
-    return render_template('index.html')
-@app.route('/')
 def index():
     # Authenticated users should always land on the main dashboard.
     if 'user_id' in session:
@@ -130,7 +162,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("10 per hour")
+#@limiter.limit("10 per hour")
 def register():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()[:80]
@@ -154,7 +186,7 @@ def register():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("500 per hour")
+#@limiter.limit("500 per hour")
 
 def login():
     # If already logged in, avoid bouncing users to scanners/login.
@@ -170,6 +202,7 @@ def login():
         if user and check_password_hash(user['password'], password):
             session['user_id']  = user['id']
             session['username'] = user['username']
+            session['csrf_token'] = secrets.token_hex(32)
             flash(f"Welcome back, {user['username']}!", 'success')
             return redirect(url_for('dashboard'))
         flash('Invalid credentials.', 'danger')
@@ -275,7 +308,7 @@ def history():
 # ── Scan APIs ──────────────────────────────────────────────────────────────────
 @app.route('/api/scan/job', methods=['POST'])
 @login_required
-@limiter.limit("30 per hour")
+#@limiter.limit("30 per hour")
 def api_scan_job():
     data = request.get_json() or {}
     res  = ai_engine.detect_fake_job(
@@ -288,7 +321,7 @@ def api_scan_job():
 
 @app.route('/api/scan/message', methods=['POST'])
 @login_required
-@limiter.limit("30 per hour")
+#@limiter.limit("30 per hour")
 def api_scan_message():
     data = request.get_json() or {}
     msg  = data.get('message', '')[:2000]
@@ -299,7 +332,7 @@ def api_scan_message():
 
 @app.route('/api/scan/verify', methods=['POST'])
 @login_required
-@limiter.limit("30 per hour")
+#@limiter.limit("30 per hour")
 def api_verify():
     data  = request.get_json(force=True) or {}
     query = data.get('query', '').strip()[:200]
@@ -310,7 +343,7 @@ def api_verify():
 
 @app.route('/api/scan/loan', methods=['POST'])
 @login_required
-@limiter.limit("30 per hour")
+#@limiter.limit("30 per hour")
 def api_scan_loan():
     data = request.get_json() or {}
     res  = ai_engine.detect_loan_app(
@@ -323,7 +356,7 @@ def api_scan_loan():
 
 @app.route('/api/scan/website', methods=['POST'])
 @login_required
-@limiter.limit("30 per hour")
+#@limiter.limit("30 per hour")
 def api_scan_website():
     data = request.get_json() or {}
     url  = data.get('url', '')[:500]
@@ -334,7 +367,7 @@ def api_scan_website():
 
 @app.route('/api/scan/qr', methods=['POST'])
 @login_required
-@limiter.limit("20 per hour")
+#@limiter.limit("20 per hour")
 def api_scan_qr():
     if 'image' not in request.files:
         return jsonify({'error': 'No image uploaded'}), 400
@@ -355,7 +388,7 @@ def api_scan_qr():
 
 @app.route('/api/scan/qr-text', methods=['POST'])
 @login_required
-@limiter.limit("30 per hour")
+#@limiter.limit("30 per hour")
 def api_scan_qr_text():
     data = request.get_json() or {}
     qr_text = data.get('qr_text', '').strip()[:1000]
@@ -368,7 +401,7 @@ def api_scan_qr_text():
 
 @app.route('/api/scan/app', methods=['POST'])
 @login_required
-@limiter.limit("20 per hour")
+#@limiter.limit("20 per hour")
 def api_scan_app():
     data = request.get_json() or {}
     res  = ai_engine.analyze_app_permissions(
@@ -380,40 +413,174 @@ def api_scan_app():
               res['result'], res['trust_score'], res['explanation'])
     return jsonify(res)
 
-# ── Chatbot ────────────────────────────────────────────────────────────────────
+# ── Chatbot (Grok / xAI + DB conversations) ────────────────────────────────────
 @app.route('/api/chatbot', methods=['POST'])
 @login_required
-@limiter.limit("60 per hour")
+#@limiter.limit("60 per hour")
 def api_chatbot():
+    bad = _require_chat_csrf()
+    if bad:
+        return bad
+    _ensure_chat_schema()
+    uid = session['user_id']
+    data = request.get_json(silent=True) or {}
+    regenerate = bool(data.get('regenerate'))
+
+    history_client = data.get('history')
+    if not isinstance(history_client, list):
+        history_client = []
+    history_client = history_client[-6:]
+
     try:
-        data     = request.get_json(force=True) or {}
-        user_msg = data.get('message', '').strip()[:500]
-        if not user_msg:
-            return jsonify({"response": "Please type a message or use the microphone."})
-        history = data.get('history')
-        if not isinstance(history, list):
-            history = None
+        cid_raw = data.get('conversation_id')
+        cid = int(cid_raw) if cid_raw not in (None, '', 0, '0') else None
+    except (TypeError, ValueError):
+        cid = None
+
+    cur = mysql.connection.cursor()
+    try:
+        if cid is not None and not chat_store.conversation_owned(cur, cid, uid):
+            cid = None
+
+        if regenerate:
+            if not cid:
+                return jsonify({'error': 'conversation_id required for regenerate', 'code': 'bad_request'}), 400
+            if not chat_store.delete_last_assistant(cur, cid, uid):
+                mysql.connection.rollback()
+                return jsonify({'error': 'Nothing to regenerate', 'code': 'empty'}), 400
+            user_msg = chat_store.get_last_user_message(cur, cid, uid) or ''
+            user_msg = chat_service.sanitize_user_message(user_msg, 4000)
+            if not user_msg:
+                mysql.connection.rollback()
+                return jsonify({'error': 'Missing user message', 'code': 'empty'}), 400
+            hist = chat_store.fetch_messages_for_model(cur, cid, uid)
         else:
-            history = history[-6:]  # last 3 turns max (user+bot pairs trimmed below in engine)
-        bot_response = ai_engine.get_chatbot_response(user_msg, history=history)
+            user_msg = chat_service.sanitize_user_message(data.get('message', ''), 4000)
+            if not user_msg:
+                return jsonify({'response': 'Please type a message or use the microphone.'})
+            if cid is None:
+                cid = chat_store.create_conversation(cur, uid)
+            hist = chat_store.fetch_messages_for_model(cur, cid, uid)
+            if not hist:
+                hist = history_client
+
+        if "fake job" in user_msg.lower():
+            bot_response = "Avoid jobs asking for money, OTPs, or personal bank details."
+        elif "phishing" in user_msg.lower():
+            bot_response = "Check URL spelling, HTTPS security, and avoid suspicious links."
+        elif "loan" in user_msg.lower():
+            bot_response = "Verify RBI registration before using loan apps."
+        elif "scam" in user_msg.lower():
+            bot_response = "Do not share OTPs, passwords, or banking details with unknown people."
+        else:
+            bot_response = "TrustLens AI recommends verifying suspicious websites, apps, jobs, and messages before trusting them."
+
+        meta = {}
+
+        if not regenerate:
+            chat_store.append_message(cur, cid, 'user', user_msg, None)
+        chat_store.append_message(cur, cid, 'assistant', bot_response, meta)
+        chat_store.touch_conversation_title(cur, cid, uid, user_msg)
+
         try:
-            cur = mysql.connection.cursor()
             cur.execute(
-                "INSERT INTO chatbot_logs (user_id, user_message, bot_response) VALUES (%s, %s, %s)",
-                (session['user_id'], user_msg, bot_response[:2000]))
-            mysql.connection.commit()
-            cur.close()
+                'INSERT INTO chatbot_logs (user_id, user_message, bot_response) VALUES (%s, %s, %s)',
+                (uid, user_msg[:500], bot_response[:2000]),
+            )
         except Exception:
             pass
-        return jsonify({"response": bot_response})
+
+        mysql.connection.commit()
     except Exception as e:
-        logger.error("Chatbot error: %s", e)
-        return jsonify({"response": "Sorry, I encountered an error. Please try again."})
+        mysql.connection.rollback()
+        logger.error('Chatbot error: %s', e)
+        return jsonify({'response': 'Sorry, I encountered an error. Please try again.'})
+    finally:
+        cur.close()
+
+    return jsonify({
+        'response': bot_response,
+        'conversation_id': cid,
+        'meta': meta,
+    })
+
+
+@app.route('/api/chat/conversations', methods=['GET'])
+@login_required
+def api_chat_conversations_list():
+    _ensure_chat_schema()
+    cur = mysql.connection.cursor()
+    try:
+        rows = chat_store.list_conversations(cur, session['user_id'])
+    finally:
+        cur.close()
+    return jsonify({'conversations': rows})
+
+
+@app.route('/api/chat/conversations', methods=['POST'])
+@login_required
+#@limiter.limit('30 per hour')
+def api_chat_conversations_create():
+    bad = _require_chat_csrf()
+    if bad:
+        return bad
+    _ensure_chat_schema()
+    data = request.get_json(silent=True) or {}
+    title = (data.get('title') or 'New chat').strip()[:200] or 'New chat'
+    cid = None
+    cur = mysql.connection.cursor()
+    try:
+        cid = chat_store.create_conversation(cur, session['user_id'], title)
+        mysql.connection.commit()
+    except Exception as e:
+        mysql.connection.rollback()
+        logger.error('create conversation: %s', e)
+        return jsonify({'error': 'Could not create conversation'}), 500
+    finally:
+        cur.close()
+    return jsonify({'id': cid, 'title': title})
+
+
+@app.route('/api/chat/conversations/<int:cid>', methods=['DELETE'])
+@login_required
+#@limiter.limit('60 per hour')
+def api_chat_conversations_delete(cid):
+    bad = _require_chat_csrf()
+    if bad:
+        return bad
+    _ensure_chat_schema()
+    cur = mysql.connection.cursor()
+    try:
+        ok = chat_store.delete_conversation(cur, cid, session['user_id'])
+        mysql.connection.commit()
+    except Exception as e:
+        mysql.connection.rollback()
+        logger.error('delete conversation: %s', e)
+        return jsonify({'error': 'Could not delete'}), 500
+    finally:
+        cur.close()
+    if not ok:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/api/chat/conversations/<int:cid>/messages', methods=['GET'])
+@login_required
+def api_chat_conversations_messages(cid):
+    _ensure_chat_schema()
+    cur = mysql.connection.cursor()
+    try:
+        if not chat_store.conversation_owned(cur, cid, session['user_id']):
+            return jsonify({'error': 'Not found'}), 404
+        msgs = chat_store.fetch_messages_ui(cur, cid, session['user_id'])
+    finally:
+        cur.close()
+    return jsonify({'messages': msgs})
 
 # ── Fraud Report ───────────────────────────────────────────────────────────────
 @app.route('/api/report', methods=['POST'])
 @login_required
-@limiter.limit("10 per hour")
+#@limiter.limit("10 per hour")
 def api_report():
     data        = request.get_json() or {}
     report_type = data.get('report_type', 'other')
@@ -452,7 +619,7 @@ def whatsapp_webhook():
         body        = request.form.get('Body', '').strip()
         if not body:
             return '', 200
-        response_text = ai_engine.get_chatbot_response(body, history=None)
+        response_text, _meta = chat_service.generate_reply(body, None, use_grok=True)
         twilio_sid   = os.environ.get('TWILIO_ACCOUNT_SID')
         twilio_token = os.environ.get('TWILIO_AUTH_TOKEN')
         twilio_from  = os.environ.get('TWILIO_WHATSAPP_FROM', 'whatsapp:+14155238886')
@@ -465,8 +632,10 @@ def whatsapp_webhook():
         logger.error("WhatsApp webhook error: %s", e)
         return '', 200
 
-if __name__ == '__main__':
-    app.run(debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    return render_template("429.html"), 429
+    return "too many requests, slow down", 429
+
+
+if __name__ == '__main__':
+    app.run(debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')
